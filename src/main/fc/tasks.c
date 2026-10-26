@@ -68,6 +68,7 @@
 #include "io/transponder_ir.h"
 #include "io/vtx_tramp.h" // Will be gone
 #include "io/rcdevice_cam.h"
+#include "io/servo_driver.h"
 #include "io/usb_cdc_hid.h"
 #include "io/vtx.h"
 
@@ -179,6 +180,7 @@ bool taskUpdateRxMainInProgress()
     return (rxState != RX_STATE_CHECK);
 }
 
+#ifndef USE_SERVO_DRIVER
 static void taskUpdateRxMain(timeUs_t currentTimeUs)
 {
     static timeDelta_t rxStateDurationFractionUs[RX_STATE_COUNT];
@@ -243,6 +245,7 @@ static void taskUpdateRxMain(timeUs_t currentTimeUs)
 
     schedulerSetNextStateTime(rxStateDurationFractionUs[rxState] >> RX_TASK_DECAY_SHIFT);
 }
+#endif // !USE_SERVO_DRIVER
 
 
 #ifdef USE_BARO
@@ -346,6 +349,10 @@ task_attribute_t task_attributes[TASK_COUNT] = {
     [TASK_STACK_CHECK] = DEFINE_TASK("STACKCHECK", NULL, NULL, taskStackCheck, TASK_PERIOD_HZ(10), TASK_PRIORITY_LOWEST),
 #endif
 
+#ifdef USE_SERVO_DRIVER
+    // No gyro, PID, accelerometer or receiver processing: the servo driver task replaces them
+    [TASK_SERVO_DRIVER] = DEFINE_TASK("SERVO_DRIVER", NULL, NULL, servoDriverUpdate, TASK_PERIOD_HZ(200), TASK_PRIORITY_HIGH),
+#else
     [TASK_GYRO] = DEFINE_TASK("GYRO", NULL, NULL, taskGyroSample, TASK_GYROPID_DESIRED_PERIOD, TASK_PRIORITY_REALTIME),
     [TASK_FILTER] = DEFINE_TASK("FILTER", NULL, NULL, taskFiltering, TASK_GYROPID_DESIRED_PERIOD, TASK_PRIORITY_REALTIME),
     [TASK_PID] = DEFINE_TASK("PID", NULL, NULL, taskMainPidLoop, TASK_GYROPID_DESIRED_PERIOD, TASK_PRIORITY_REALTIME),
@@ -354,6 +361,7 @@ task_attribute_t task_attributes[TASK_COUNT] = {
     [TASK_ATTITUDE] = DEFINE_TASK("ATTITUDE", NULL, NULL, imuUpdateAttitude, TASK_PERIOD_HZ(100), TASK_PRIORITY_MEDIUM),
 #endif
     [TASK_RX] = DEFINE_TASK("RX", NULL, rxUpdateCheck, taskUpdateRxMain, TASK_PERIOD_HZ(33), TASK_PRIORITY_HIGH), // If event-based scheduling doesn't work, fallback to periodic scheduling
+#endif // USE_SERVO_DRIVER
     [TASK_DISPATCH] = DEFINE_TASK("DISPATCH", NULL, NULL, dispatchProcess, TASK_PERIOD_HZ(1000), TASK_PRIORITY_HIGH),
 
 #ifdef USE_BEEPER
@@ -474,6 +482,9 @@ void tasksInit(void)
     setTaskEnabled(TASK_STACK_CHECK, true);
 #endif
 
+#ifdef USE_SERVO_DRIVER
+    setTaskEnabled(TASK_SERVO_DRIVER, true);
+#else
     if (sensors(SENSOR_GYRO)) {
         rescheduleTask(TASK_GYRO, gyro.sampleLooptime);
         rescheduleTask(TASK_FILTER, gyro.targetLooptime);
@@ -498,7 +509,7 @@ void tasksInit(void)
     }
 #endif
 
-    setTaskEnabled(TASK_RX, true);
+#endif // USE_SERVO_DRIVER
 
     setTaskEnabled(TASK_DISPATCH, dispatchIsEnabled());
 

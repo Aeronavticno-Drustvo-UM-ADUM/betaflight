@@ -105,6 +105,9 @@ typedef enum {
     TASK_ACCEL,
     TASK_ATTITUDE,
     TASK_RX,
+#ifdef USE_SERVO_DRIVER
+    TASK_SERVO_DRIVER,
+#endif
     TASK_SERIAL,
     TASK_DISPATCH,
     TASK_BATTERY_VOLTAGE,

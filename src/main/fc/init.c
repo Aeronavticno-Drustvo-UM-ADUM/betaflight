@@ -91,6 +91,7 @@
 #include "fc/runtime_config.h"
 #include "fc/stats.h"
 #include "fc/tasks.h"
+#include "io/servo_driver.h"
 
 #include "flight/failsafe.h"
 #include "flight/imu.h"
@@ -553,7 +554,11 @@ void init(void)
     /* Motors needs to be initialized soon as posible because hardware initialization
      * may send spurious pulses to esc's causing their early initialization. Also ppm
      * receiver may share timer with motors so motors MUST be initialized here. */
+#ifdef USE_SERVO_DRIVER
+    motorDevInit(&motorConfig()->dev, idlePulse, SERVO_DRIVER_MOTOR_COUNT);
+#else
     motorDevInit(&motorConfig()->dev, idlePulse, getMotorCount());
+#endif
     systemState |= SYSTEM_STATE_MOTORS_READY;
 #else
     UNUSED(idlePulse);
@@ -680,6 +685,7 @@ void init(void)
 
     initBoardAlignment(boardAlignment());
 
+#ifndef USE_SERVO_DRIVER
     if (!sensorsAutodetect()) {
         // if gyro was not detected due to whatever reason, notify and don't arm.
         if (true
@@ -692,8 +698,11 @@ void init(void)
         setArmingDisabled(ARMING_DISABLED_NO_GYRO);
     }
 
+#endif // !USE_SERVO_DRIVER
+
     systemState |= SYSTEM_STATE_SENSORS_READY;
 
+#ifndef USE_SERVO_DRIVER
     // Set the targetLooptime based on the detected gyro sampleRateHz and pid_process_denom
     gyroSetTargetLooptime(pidConfig()->pid_process_denom);
 
@@ -709,12 +718,15 @@ void init(void)
     pidInit(currentPidProfile);
 
     mixerInitProfile();
+#endif // !USE_SERVO_DRIVER
 
 #ifdef USE_PID_AUDIO
     pidAudioInit();
 #endif
 
-#ifdef USE_SERVOS
+#ifdef USE_SERVO_DRIVER
+    servoDevInit(&servoConfig()->dev);
+#elif defined(USE_SERVOS)
     servosInit();
     if (isMixerUsingServos()) {
         //pwm_params.useChannelForwarding = featureIsEnabled(FEATURE_CHANNEL_FORWARDING);
@@ -756,11 +768,13 @@ void init(void)
     LED0_OFF;
     LED1_OFF;
 
+#ifndef USE_SERVO_DRIVER
     imuInit();
 
     failsafeInit();
 
     rxInit();
+#endif
 
 #ifdef USE_GPS
     if (featureIsEnabled(FEATURE_GPS)) {
@@ -823,7 +837,9 @@ void init(void)
         accStartCalibration();
     }
 #endif
+#ifndef USE_SERVO_DRIVER
     gyroStartCalibration(false);
+#endif
 #ifdef USE_BARO
     baroStartCalibration();
 #endif
@@ -1000,6 +1016,10 @@ void init(void)
     swdPinsInit();
 
     unusedPinsInit();
+
+#ifdef USE_SERVO_DRIVER
+    servoDriverInit();
+#endif
 
     tasksInit();
 

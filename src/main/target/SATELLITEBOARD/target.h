@@ -25,6 +25,8 @@
 // Servo driver only: no real sensors, config over MSP, MAVLink telemetry
 #define LED0_PIN                PC15
 
+// Servo driver mode: no gyro/PID/RX tasks, servos are driven from MAVLink (see io/servo_driver.c)
+#define USE_SERVO_DRIVER
 #define USE_FAKE_GYRO
 #define USE_FAKE_ACC
 #define USE_VCP
