@@ -1,0 +1,29 @@
+# Betaflight CLI configuration for the SATELLITEBOARD servo driver.
+#
+# Paste it into the configurator CLI tab (it ends with "save"), or let
+# test/test_servo_sitl.py apply it to the SITL build. Lines starting with # are ignored.
+#
+# Outputs follow MAVLink RC_CHANNELS_OVERRIDE: channels 1-5 are servos 0-4, channels 6-8 are motors 0-2.
+
+# MAVLink on UART2 (serial identifier 1): function 512 = telemetry MAVLink.
+# Format: serial <id> <function mask> <msp baud> <gps baud> <telemetry baud> <blackbox baud>
+serial 1 512 115200 57600 57600 115200
+
+# Servos: 50 Hz, centre pulse used as the safe position when disarmed or on link loss
+set servo_pwm_rate = 50
+set servo_center_pulse = 1500
+set servo_lowpass_hz = 0
+
+# servo <index> <min> <max> <middle> <rate> <forward from channel (-1 = none)>
+servo 0 1000 2000 1500 100 -1
+servo 1 1000 2000 1500 100 -1
+servo 2 1000 2000 1500 100 -1
+servo 3 1000 2000 1500 100 -1
+servo 4 1000 2000 1500 100 -1
+
+# Motors: PWM family protocol (DShot is not available on the F103)
+set motor_pwm_protocol = ONESHOT125
+set min_command = 1000
+set max_throttle = 2000
+
+save

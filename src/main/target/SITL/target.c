@@ -47,6 +47,7 @@ const timerHardware_t timerHardware[1]; // unused
 
 #include "config/feature.h"
 #include "config/config.h"
+#include "fc/tasks.h"
 #include "scheduler/scheduler.h"
 
 #include "pg/rx.h"
@@ -242,6 +243,9 @@ void systemInit(void) {
         printf("Create udpWorker error!\n");
         exit(1);
     }
+
+    // the task attributes are normally set up after systemInit()
+    tasksInitData();
 
     // serial can't been slow down
     rescheduleTask(TASK_SERIAL, 1);
@@ -445,6 +449,15 @@ static bool pwmEnableMotors(void)
 
 static void pwmWriteMotor(uint8_t index, float value)
 {
+#ifdef USE_SERVO_DRIVER
+    // test hook: report every change of a motor output on stdout
+    static int16_t reportedMotor[MAX_SUPPORTED_MOTORS];
+    if (reportedMotor[index] != (int16_t)value) {
+        reportedMotor[index] = (int16_t)value;
+        printf("[motor]%u=%d\n", index, (int)value);
+        fflush(stdout);
+    }
+#endif
     motorsPwm[index] = value - idlePulse;
 }
 
@@ -484,6 +497,13 @@ static void pwmCompleteMotorUpdate(void)
 }
 
 void pwmWriteServo(uint8_t index, float value) {
+#ifdef USE_SERVO_DRIVER
+    // test hook: report every change of a servo output on stdout
+    if (index < MAX_SUPPORTED_SERVOS && servosPwm[index] != (int16_t)value) {
+        printf("[servo]%u=%d\n", index, (int)value);
+        fflush(stdout);
+    }
+#endif
     servosPwm[index] = value;
 }
 

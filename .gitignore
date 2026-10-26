@@ -1,3 +1,6 @@
+
+
+**/bf-configurator
 *.o
 .DS_Store
 *~
@@ -55,3 +58,6 @@ eeprom.bin
 # ST-Link flashing environment
 /tools/stlink-flash/stlinkenv/
 /tools/stlink-flash/logs/
+
+# SITL run directory (eeprom.bin)
+/test/sitl-run*/

@@ -818,7 +818,7 @@ void init(void)
     flashfsInit();
 #endif
 
-#ifdef USE_BLACKBOX
+#if defined(USE_BLACKBOX) && !defined(USE_SERVO_DRIVER)
 #ifdef USE_SDCARD
     if (blackboxConfig()->device == BLACKBOX_DEVICE_SDCARD) {
         if (sdcardConfig()->mode) {
