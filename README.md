@@ -2,7 +2,7 @@
 
 Fork of [Betaflight](https://github.com/betaflight/betaflight) 4.3.x (MSP API 1.44, based on a 2022 snapshot, not rebased onto current upstream). It adds one target, `SATELLITEBOARD`, a STM32F103 (128 KB flash, 20 KB RAM) board used as a servo and motor driver. It does not fly anything: no gyro, no PID loop, no receiver. The outputs are driven over MAVLink.
 
-Status: builds and flashes. Not yet tested on the bench with real MAVLink traffic, servos or ESCs.
+Status: builds and flashes. The driver logic is tested on SITL (`test/test_servo_sitl.py`); not yet tested on the bench with real MAVLink traffic, servos or ESCs.
 
 ## Hardware (`src/main/target/SATELLITEBOARD/`)
 
@@ -17,13 +17,16 @@ Status: builds and flashes. Not yet tested on the bench with real MAVLink traffi
 ## How it works
 
 - `USE_SERVO_DRIVER` (set in `target.h`) removes the gyro, filter, PID, accelerometer, attitude and RX tasks and the matching init in `main()`. They are replaced by one 200 Hz task, `src/main/io/servo_driver.c`.
-- Send MAVLink on the port that has the **MAVLink** telemetry function (set it in the configurator Ports tab or CLI `serial`; default 57600 baud).
-- **`RC_CHANNELS_OVERRIDE`** (target system 0 or 1), pulse width in us: channels 1-5 are servos (500-2500), channels 6-8 are motors (clamped to `mincommand`..`maxthrottle`). 0 and 65535 mean "do not change".
-- **Arming:** the `HEARTBEAT` armed flag, or `MAV_CMD_COMPONENT_ARM_DISARM`, together with a recent `RC_CHANNELS_OVERRIDE`. The board also sends a 1 Hz `HEARTBEAT` (sysid 1, comp `MAV_COMP_ID_SERVO1`) with its arm state.
-- **Link-loss protection:** no `RC_CHANNELS_OVERRIDE` for 500 ms disarms, centres the servos (`servo_center_pulse`) and sets the motors to `mincommand`. The arm request is cleared, so the ground side must arm again.
+- The master flight controller talks MAVLink 2.0 with the ADUM dialect (`lib/main/MAVLink_adum`, generated from `adum.xml` in the INAV fork; MAVLink 1.0 headers stay for the other targets). Put the **MAVLink** telemetry function on a UART (Ports tab or CLI `serial`, 115200 baud). `test/servo_config.txt` is a ready CLI configuration, GPS included.
+- **`ADUM_AUX_CHANNELS`** (id 13002) from the master: `arming_status`, `servo[8]`, `motor[3]` in us. The board outputs servos 1-5 and motors 1-3; servos 6-8 are ignored. 0 and 65535 mean "no value". sysid/compid are not checked yet.
+- **Servos** always move to the pulse that arrives, armed or not. The configurator servo limits are ignored; only a 500-2500 us clamp applies. Before the first frame they sit at `servo_center_pulse`.
+- **Motors** stay at zero throttle (`min_command` pulse) unless the last frame said ARMED. The motor values of an armed frame are applied at once (arming status and values arrive in the same frame); a disarmed frame sets the motors to zero. Values are clamped to `min_command`..`max_throttle`.
+- **Lost communication:** armed and no valid MAVLink frame (`ADUM_AUX_CHANNELS` or `HEARTBEAT`) for 500 ms disarms the board. The motors go to zero, the servos stay where the last frame put them.
+- **Board to master:** a 1 Hz `HEARTBEAT` with the arm state, and an **`ADUM_GPS_PVT`** (id 13000) for every UBX NAV-PVT solution (fix type incl. DGPS/RTK float/RTK fixed, time, position, velocity, accuracies). Heading is flagged valid with a 3D fix above 0.3 m/s. `ADUM_MAGNETOMETER` (13001) is not implemented yet (needs a magnetometer driver; I2C1 on the free pins PB8/PB9 needs the AFIO remap that the F1 I2C driver does not set yet).
+- GPS (UBlox, set the UART in Ports): the driver configures M9/M10 modules with `UBX-CFG-VALSET` (module detected through `UBX-MON-VER`; SBAS and constellation settings stay at the module defaults on those). Older modules use the original commands.
 - Motors are PWM, OneShot or Multishot. **DShot is not available** on this F1 target. The motor protocol defaults to `DISABLED`: set `motor_pwm_protocol` (e.g. `ONESHOT125`) in the CLI.
 - GPS is enabled (UBlox, UART of your choice via Ports). The UBlox driver was extended to configure M9/M10 modules with `UBX-CFG-VALSET` (module detected through `UBX-MON-VER`); SBAS and constellation settings are left at the module defaults on those. Older modules use the original commands.
-- Everything else is removed to fit: OSD, blackbox, LED strip, VTX, SPI, beeper, most serial RX protocols and telemetry, resource remapping, plus the unused Open Location Code library (`make/source.mk`). Flash use is about 82 KB of 126 KB, RAM about 16 KB of 20 KB (2 KB of it is the reserved stack).
+- Everything else is removed to fit: OSD, blackbox, LED strip, VTX, SPI, beeper, most serial RX protocols and telemetry, resource remapping, plus the unused Open Location Code library (`make/source.mk`). Flash use is about 85 KB of 126 KB, RAM about 15.4 KB of 20 KB (2 KB of it is the reserved stack).
 - The CLI and MSP over USB/UART still work. The gyro, attitude and PID tabs of the configurator show nothing useful.
 
 ## Build and flash
@@ -45,15 +48,15 @@ Use Betaflight Configurator **10.9.0** ([release](https://github.com/betaflight/
 
 ## Changes against upstream
 
-- New: `src/main/target/SATELLITEBOARD/`, `src/main/io/servo_driver.[ch]`, `tools/stlink-flash/`.
+- New: `src/main/target/SATELLITEBOARD/`, `src/main/io/servo_driver.[ch]`, `src/main/io/adum_mavlink.h`, `lib/main/MAVLink_adum/`, `tools/stlink-flash/`, `test/`.
 - `src/main/fc/init.c`, `src/main/fc/tasks.c`, `src/main/scheduler/scheduler.h`: `USE_SERVO_DRIVER` paths.
-- `src/main/io/gps.[ch]`: M9/M10 UBlox configuration.
+- `src/main/io/gps.[ch]`: M9/M10 UBlox configuration, NAV-PVT export for `ADUM_GPS_PVT`.
 - `make/source.mk`: `olc.c` is not built for this target. `.gitignore`: tracks `tools/stlink-flash/`.
 
 ## Not done yet
 
-- DShot, servo/motor output feedback, MAVLink telemetry other than the heartbeat.
+- DShot, servo/motor output feedback, the magnetometer (`ADUM_MAGNETOMETER`), sysid/compid.
 - RAM reduction beyond what is described (about 4 KB free including the stack).
-- Bench tests of the arm logic, link-loss disarm, GPS M10 and the motor outputs.
+- Bench tests of the real timer outputs, the F103 UART path, GPS M10 and the ESCs.
 
 Betaflight is licensed under the GPLv3. See the upstream project for general documentation: https://github.com/betaflight/betaflight
