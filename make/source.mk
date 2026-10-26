@@ -456,7 +456,9 @@ VPATH        := $(VPATH):$(STDPERIPH_DIR)/src
 OLC_DIR = $(ROOT)/lib/main/google/olc
 
 ifneq ($(OLC_DIR),)
+ifneq ($(TARGET),SATELLITEBOARD)
 INCLUDE_DIRS += $(OLC_DIR)
 SRC += $(OLC_DIR)/olc.c
 SIZE_OPTIMISED_SRC += $(OLC_DIR)/olc.c
+endif
 endif

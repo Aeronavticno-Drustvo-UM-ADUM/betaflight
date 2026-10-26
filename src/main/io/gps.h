@@ -135,6 +135,8 @@ typedef struct gpsData_s {
     ubloxAckState_e ackState;
     bool ubloxUsePVT;
     bool ubloxUseSAT;
+    bool ubloxVersionKnown;         // MON-VER reply received (or timed out)
+    bool ubloxM9orAbove;            // M9/M10 class module: configure with UBX-CFG-VALSET
 } gpsData_t;
 
 #define GPS_PACKET_LOG_ENTRY_COUNT 21 // To make this useful we should log as many packets as we can fit characters a single line of a OLED display.
