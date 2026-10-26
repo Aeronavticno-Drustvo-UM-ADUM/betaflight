@@ -1,0 +1,101 @@
+<?xml version="1.0"?>
+<!-- ADUM private dialect. Message IDs 13000-13999 are reserved for it (unused by upstream v1.0 dialects). -->
+<mavlink>
+  <include>storm32.xml</include>
+  <version>1</version>
+  <dialect>0</dialect>
+  <enums>
+    <enum name="ADUM_GPS_PVT_FLAGS" bitmask="true">
+      <description>Status flags of ADUM_GPS_PVT. Combine with bitwise OR; each flag qualifies one part of the message.</description>
+      <entry value="1" name="ADUM_GPS_PVT_FLAGS_TIME_VALID">
+        <description>time_usec holds a valid UTC date and time.
+          If clear, time_usec is 0 and must not be used to set any clock.</description>
+      </entry>
+      <entry value="2" name="ADUM_GPS_PVT_FLAGS_DIFF_CORRECTIONS">
+        <description>Differential (RTK) corrections were applied to this solution.
+          Set for DGPS, RTK float and RTK fixed; clear for a standalone solution.</description>
+      </entry>
+      <entry value="4" name="ADUM_GPS_PVT_FLAGS_HEADING_VALID">
+        <description>heading_motion is valid.
+          If clear, ignore heading_motion (it is typically unreliable at very low speed).</description>
+      </entry>
+    </enum>
+    <enum name="ADUM_ARMING_STATUS">
+      <description>Arming state of the flight controller, as sent in ADUM_AUX_CHANNELS.</description>
+      <entry value="0" name="ADUM_ARMING_STATUS_DISARMED">
+        <description>Disarmed. The satellite board must not drive the motors (servos may still be driven, as the flight controller commands).</description>
+      </entry>
+      <entry value="1" name="ADUM_ARMING_STATUS_ARMED">
+        <description>Armed. The motor values are valid commands.</description>
+      </entry>
+    </enum>
+  </enums>
+  <messages>
+    <message id="13000" name="ADUM_GPS_PVT">
+      <description>Position, velocity and time (PVT) solution streamed by the ADUM GPS-RTK module to the flight controller.
+        One message carries a complete, self-consistent solution for a single GNSS epoch.
+        Direction: GPS-RTK module -> flight controller.</description>
+      <field type="uint64_t" name="time_usec" units="us">UTC time since the UNIX epoch (1970-01-01 00:00:00 UTC) of this solution.
+        Valid only if ADUM_GPS_PVT_FLAGS_TIME_VALID is set, otherwise 0.</field>
+      <field type="int32_t" name="lat" units="degE7">Latitude (WGS84), positive north.
+        Degrees multiplied by 1e7.</field>
+      <field type="int32_t" name="lon" units="degE7">Longitude (WGS84), positive east.
+        Degrees multiplied by 1e7.</field>
+      <field type="int32_t" name="alt_msl" units="mm">Altitude above mean sea level (geoid), positive up.
+        Equals alt_ellipsoid minus the geoid separation at this position.</field>
+      <field type="int32_t" name="alt_ellipsoid" units="mm">Altitude above the WGS84 ellipsoid, positive up.</field>
+      <field type="int32_t" name="vel_n" units="mm/s">Velocity over ground, North component (positive north).</field>
+      <field type="int32_t" name="vel_e" units="mm/s">Velocity over ground, East component (positive east).</field>
+      <field type="int32_t" name="vel_d" units="mm/s">Velocity over ground, Down component (positive down, so a climb is negative).</field>
+      <field type="int32_t" name="heading_motion" units="degE5">Heading of motion (course over ground): direction of the velocity vector,
+        0..359.99999 degrees clockwise from true North, multiplied by 1e5.
+        This is NOT the vehicle's attitude heading.
+        Valid only if ADUM_GPS_PVT_FLAGS_HEADING_VALID is set.</field>
+      <field type="uint32_t" name="h_acc" units="mm">Horizontal position accuracy estimate, as reported by the GPS receiver.</field>
+      <field type="uint32_t" name="v_acc" units="mm">Vertical position accuracy estimate, as reported by the GPS receiver.</field>
+      <field type="uint32_t" name="s_acc" units="mm/s">Speed accuracy estimate, as reported by the GPS receiver.</field>
+      <field type="uint16_t" name="pdop" invalid="UINT16_MAX">Position dilution of precision, scaled by 100 (1.23 is sent as 123).
+        UINT16_MAX if unknown.</field>
+      <field type="uint8_t" name="fix_type" enum="GPS_FIX_TYPE">Fix type (GPS_FIX_TYPE). Values:
+           0 NO_GPS    No GPS connected.
+           1 NO_FIX    GPS connected, but no position information.
+           2 2D_FIX    2D position (no usable altitude).
+           3 3D_FIX    3D position, standalone.
+           4 DGPS      3D position aided by DGPS / SBAS.
+           5 RTK_FLOAT RTK solution with float carrier-phase ambiguities (decimetre-level).
+           6 RTK_FIXED RTK solution with fixed carrier-phase ambiguities (centimetre-level).
+           7 STATIC    Static fixed position, typically used on base stations.
+           8 PPP       Precise Point Positioning, 3D position.
+        Only 3 and above give a usable 3D position. ADUM_GPS_PVT_FLAGS_DIFF_CORRECTIONS
+        is set for 4, 5 and 6.</field>
+      <field type="uint8_t" name="satellites_visible" invalid="UINT8_MAX">Number of satellites used in the solution.
+        UINT8_MAX if unknown.</field>
+      <field type="uint8_t" name="flags" enum="ADUM_GPS_PVT_FLAGS" display="bitmask">Status flags (ADUM_GPS_PVT_FLAGS bitmask):
+           1 TIME_VALID          time_usec is valid.
+           2 DIFF_CORRECTIONS    differential (RTK) corrections applied.
+           4 HEADING_VALID       heading_motion is valid.</field>
+    </message>
+    <message id="13001" name="ADUM_MAGNETOMETER">
+      <description>Magnetometer measurement from a sensor to the flight controller.
+        Same content as the INAV MSP2_SENSOR_COMPASS packet (instance, time, X/Y/Z in mGauss).
+        Direction: sensor module -> flight controller.</description>
+      <field type="uint8_t" name="instance">Sensor instance index, 0 for the first magnetometer.</field>
+      <field type="uint32_t" name="time_ms" units="ms">Timestamp of the measurement (milliseconds, in the sender's own time base).</field>
+      <field type="int16_t" name="mag_x" units="mgauss">Magnetic field, X axis, pointing to the front of the vehicle.</field>
+      <field type="int16_t" name="mag_y" units="mgauss">Magnetic field, Y axis, pointing to the right of the vehicle.</field>
+      <field type="int16_t" name="mag_z" units="mgauss">Magnetic field, Z axis, pointing down.</field>
+    </message>
+    <message id="13002" name="ADUM_AUX_CHANNELS">
+      <description>Actuator outputs computed by the main INAV flight controller, for the satellite board that drives the
+        motors and servos. Contains the arming status, then motors 1-3, then servos 1-8.
+        Direction: flight controller -> satellite board.</description>
+      <field type="uint8_t" name="arming_status" enum="ADUM_ARMING_STATUS">Arming status (ADUM_ARMING_STATUS):
+           0 DISARMED    Motors must not be driven.
+           1 ARMED       Motor values are valid commands.</field>
+      <field type="uint16_t[3]" name="motor" units="us">Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
+        Index 0 is motor 1.</field>
+      <field type="uint16_t[8]" name="servo" units="us">Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
+        Index 0 is servo 1.</field>
+    </message>
+  </messages>
+</mavlink>
