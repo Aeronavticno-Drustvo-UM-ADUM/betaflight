@@ -1,154 +1,59 @@
-![Betaflight](docs/assets/images/bf_logo.png)
+# Betaflight, ADUM fork: SATELLITEBOARD servo driver
 
-[![Latest version](https://img.shields.io/github/v/release/betaflight/betaflight)](https://github.com/betaflight/betaflight/releases) [![Build Status](https://dev.azure.com/Betaflight/Betaflight%20Nightlies/_apis/build/status/betaflight.betaflight?branchName=master)](https://dev.azure.com/Betaflight/Betaflight%20Nightlies/_build/latest?definitionId=8&branchName=master) [![Build Status](https://dev.azure.com/Betaflight/Betaflight%20Nightlies/_apis/build/status/betaflight.betaflight?branchName=4.2-maintenance)](https://dev.azure.com/Betaflight/Betaflight%20Nightlies/_build/latest?definitionId=8&branchName=4.2-maintenance) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+Fork of [Betaflight](https://github.com/betaflight/betaflight) 4.3.x (MSP API 1.44, based on a 2022 snapshot, not rebased onto current upstream). It adds one target, `SATELLITEBOARD`, a STM32F103 (128 KB flash, 20 KB RAM) board used as a servo and motor driver. It does not fly anything: no gyro, no PID loop, no receiver. The outputs are driven over MAVLink.
 
-Betaflight is flight controller software (firmware) used to fly multi-rotor craft and fixed wing craft.
+Status: builds and flashes. Not yet tested on the bench with real MAVLink traffic, servos or ESCs.
 
-This fork differs from Baseflight and Cleanflight in that it focuses on flight performance, leading-edge feature additions, and wide target support.
+## Hardware (`src/main/target/SATELLITEBOARD/`)
 
-## Events
+| Function | Pins |
+|---|---|
+| Servos 1-5 | PA15, PB3 (TIM2), PA8, PA9, PA10 (TIM1) |
+| Motors 1-3 | PA6, PB0, PB1 (TIM3). PA7 is left unused so the motor timer is not shared |
+| UART1 / UART2 / UART3 | PB7 RX, PB6 TX / PA3 RX, PA2 TX / PB11 RX, PB10 TX |
+| USB virtual COM port | for the configurator |
+| LED | PC15 |
 
-| Date  | Event |
-| - | - |
+## How it works
 
+- `USE_SERVO_DRIVER` (set in `target.h`) removes the gyro, filter, PID, accelerometer, attitude and RX tasks and the matching init in `main()`. They are replaced by one 200 Hz task, `src/main/io/servo_driver.c`.
+- Send MAVLink on the port that has the **MAVLink** telemetry function (set it in the configurator Ports tab or CLI `serial`; default 57600 baud).
+- **`RC_CHANNELS_OVERRIDE`** (target system 0 or 1), pulse width in us: channels 1-5 are servos (500-2500), channels 6-8 are motors (clamped to `mincommand`..`maxthrottle`). 0 and 65535 mean "do not change".
+- **Arming:** the `HEARTBEAT` armed flag, or `MAV_CMD_COMPONENT_ARM_DISARM`, together with a recent `RC_CHANNELS_OVERRIDE`. The board also sends a 1 Hz `HEARTBEAT` (sysid 1, comp `MAV_COMP_ID_SERVO1`) with its arm state.
+- **Link-loss protection:** no `RC_CHANNELS_OVERRIDE` for 500 ms disarms, centres the servos (`servo_center_pulse`) and sets the motors to `mincommand`. The arm request is cleared, so the ground side must arm again.
+- Motors are PWM, OneShot or Multishot. **DShot is not available** on this F1 target. The motor protocol defaults to `DISABLED`: set `motor_pwm_protocol` (e.g. `ONESHOT125`) in the CLI.
+- GPS is enabled (UBlox, UART of your choice via Ports). The UBlox driver was extended to configure M9/M10 modules with `UBX-CFG-VALSET` (module detected through `UBX-MON-VER`); SBAS and constellation settings are left at the module defaults on those. Older modules use the original commands.
+- Everything else is removed to fit: OSD, blackbox, LED strip, VTX, SPI, beeper, most serial RX protocols and telemetry, resource remapping, plus the unused Open Location Code library (`make/source.mk`). Flash use is about 82 KB of 126 KB, RAM about 16 KB of 20 KB (2 KB of it is the reserved stack).
+- The CLI and MSP over USB/UART still work. The gyro, attitude and PID tabs of the configurator show nothing useful.
 
-## News
+## Build and flash
 
-### Requirements for the submission of new and updated targets
+```bash
+make TARGET=SATELLITEBOARD -j$(nproc)
+tools/stlink-flash/setup_env.sh        # once
+tools/stlink-flash/fix_permissions.sh  # once, needs sudo (udev rule for the ST-Link)
+tools/stlink-flash/flash.sh            # flashes over SWD, see tools/stlink-flash/README.md
+```
 
-The following new requirements for pull requests adding new targets or modifying existing targets are put in place from now on:
+Use an ST-Link on the SWD header. The script detects the chip (medium density STM32F103, pyocd target `stm32f103cb`), logs to `tools/stlink-flash/logs/` and prints hints on failure.
 
-1. No new F3 based targets will be accepted;
+After the first flash, open the CLI and run `defaults` then `save`. Pin layouts are stored in the saved config, so a board that ran another firmware keeps its old pins until then.
 
-2. For any new target that is to be added, only a Unified Target config into https://github.com/betaflight/unified-targets/tree/master/configs/default needs to be submitted. See the [instructions](https://github.com/betaflight/betaflight/blob/master/docs/TargetMaintenance/CreatingAUnifiedTarget.md) for how to create a Unified Target configuration. If there is no Unified Target for the MCU type of the new target (see instructions above), then a 'legacy' format target definition into `src/main/target/` has to be submitted as well;
+## Configurator
 
-3. For changes to existing targets, the change needs to be applied to the Unified Target config in https://github.com/betaflight/unified-targets/tree/master/configs/default. If no Unified Target configuration for the target exists, a new Unified Target configuration will have to be created and submitted. If there is no Unified Target for the MCU type of the new target (see instructions above), then an update to the 'legacy' format target definition in `src/main/target/` has to be submitted alongside the update to the Unified Target configuration.
+Use Betaflight Configurator **10.9.0** ([release](https://github.com/betaflight/betaflight-configurator/releases/tag/10.9.0)), which matches the 4.3 firmware generation. 2025.12.2 also keeps API 1.44 as its minimum. The 2026.x releases were not confirmed to support it.
 
+## Changes against upstream
 
-## Features
+- New: `src/main/target/SATELLITEBOARD/`, `src/main/io/servo_driver.[ch]`, `tools/stlink-flash/`.
+- `src/main/fc/init.c`, `src/main/fc/tasks.c`, `src/main/scheduler/scheduler.h`: `USE_SERVO_DRIVER` paths.
+- `src/main/io/gps.[ch]`: M9/M10 UBlox configuration.
+- `make/source.mk`: `olc.c` is not built for this target. `.gitignore`: tracks `tools/stlink-flash/`.
 
-Betaflight has the following features:
+## Not done yet
 
-* Multi-color RGB LED strip support (each LED can be a different color using variable length WS2811 Addressable RGB strips - use for Orientation Indicators, Low Battery Warning, Flight Mode Status, Initialization Troubleshooting, etc)
-* DShot (150, 300 and 600), Multishot, Oneshot (125 and 42) and Proshot1000 motor protocol support
-* Blackbox flight recorder logging (to onboard flash or external microSD card where equipped)
-* Support for targets that use the STM32 F4, G4, F7 and H7 processors
-* PWM, PPM, SPI, and Serial (SBus, SumH, SumD, Spektrum 1024/2048, XBus, etc) RX connection with failsafe detection
-* Multiple telemetry protocols (CRSF, FrSky, HoTT smart-port, MSP, etc)
-* RSSI via ADC - Uses ADC to read PWM RSSI signals, tested with FrSky D4R-II, X8R, X4R-SB, & XSR
-* OSD support & configuration without needing third-party OSD software/firmware/comm devices
-* OLED Displays - Display information on: Battery voltage/current/mAh, profile, rate profile, mode, version, sensors, etc
-* In-flight manual PID tuning and rate adjustment
-* PID and filter tuning using sliders
-* Rate profiles and in-flight selection of them
-* Configurable serial ports for Serial RX, Telemetry, ESC telemetry, MSP, GPS, OSD, Sonar, etc - Use most devices on any port, softserial included
-* VTX support for Unify Pro and IRC Tramp
-* and MUCH, MUCH more.
+- DShot, servo/motor output feedback, MAVLink telemetry other than the heartbeat.
+- RAM reduction beyond what is described (about 4 KB free including the stack).
+- Bench tests of the arm logic, link-loss disarm, GPS M10 and the motor outputs.
 
-## Installation & Documentation
-
-See: https://github.com/betaflight/betaflight/wiki
-
-## Support and Developers Channel
-
-There's a dedicated Slack chat channel here:
-
-https://slack.betaflight.com/
-
-We also have a Facebook Group. Join us to get a place to talk about Betaflight, ask configuration questions, or just hang out with fellow pilots.
-
-https://www.facebook.com/groups/betaflightgroup/
-
-Etiquette: Don't ask to ask and please wait around long enough for a reply - sometimes people are out flying, asleep or at work and can't answer immediately.
-
-## Configuration Tool
-
-To configure Betaflight you should use the Betaflight-configurator GUI tool (Windows/OSX/Linux) which can be found here:
-
-https://github.com/betaflight/betaflight-configurator/releases/latest
-
-## Contributing
-
-Contributions are welcome and encouraged. You can contribute in many ways:
-
-* implement a new feature in the firmware or in configurator (see [below](#Developers));
-* documentation updates and corrections;
-* How-To guides - received help? Help others!
-* bug reporting & fixes;
-* new feature ideas & suggestions;
-* provide a new translation for configurator, or help us maintain the existing ones (see [below](#Translators)).
-
-The best place to start is the Betaflight Slack (registration [here](https://slack.betaflight.com/)). Next place is the github issue tracker:
-
-https://github.com/betaflight/betaflight/issues
-https://github.com/betaflight/betaflight-configurator/issues
-
-Before creating new issues please check to see if there is an existing one, search first otherwise you waste people's time when they could be coding instead!
-
-If you want to contribute to our efforts financially, please consider making a donation to us through [PayPal](https://paypal.me/betaflight).
-
-If you want to contribute financially on an ongoing basis, you should consider becoming a patron for us on [Patreon](https://www.patreon.com/betaflight).
-
-## Developers
-
-Contribution of bugfixes and new features is encouraged. Please be aware that we have a thorough review process for pull requests, and be prepared to explain what you want to achieve with your pull request.
-Before starting to write code, please read our [development guidelines](docs/development/Development.md ) and [coding style definition](docs/development/CodingStyle.md).
-
-Azure Pipelines are used to run automatic builds
-
-https://dev.azure.com/Betaflight/Betaflight%20Nightlies/_build
-
-## Translators
-
-We want to make Betaflight accessible for pilots who are not fluent in English, and for this reason we are currently maintaining translations into 18 languages for Betaflight Configurator: Català, Deutsch, Español, Euskera, Français, Galego, Hrvatski, Bahasa Indonesia, Italiano, 日本語, 한국어, Latviešu, Português, Português Brasileiro, polski, Русский язык, Svenska, 简体中文.
-We have got a team of volunteer translators who do this work, but additional translators are always welcome to share the workload, and we are keen to add additional languages. If you would like to help us with translations, you have got the following options:
-- if you help by suggesting some updates or improvements to translations in a language you are familiar with, head to [crowdin](https://crowdin.com/project/betaflight-configurator) and add your suggested translations there;
-- if you would like to start working on the translation for a new language, or take on responsibility for proof-reading the translation for a language you are very familiar with, please head to the Betaflight Slack (registration [here](https://slack.betaflight.com/)), and join the '#team\_translation' channel - the people in there can help you to get a new language added, or set you up as a proof reader.
-
-## Hardware Issues
-
-Betaflight does not manufacture or distribute their own hardware. While we are collaborating with and supported by a number of manufacturers, we do not do any kind of hardware support.
-If you encounter any hardware issues with your flight controller or another component, please contact the manufacturer or supplier of your hardware, or check RCGroups https://rcgroups.com/forums/showthread.php?t=2464844 to see if others with the same problem have found a solution.
-
-## Betaflight Releases
-
-https://github.com/betaflight/betaflight/releases
-
-## Open Source / Contributors
-
-Betaflight is software that is **open source** and is available free of charge without warranty to all users.
-
-Betaflight is forked from Cleanflight, so thanks goes to all those whom have contributed to Cleanflight and its origins.
-
-Origins for this fork (Thanks!):
-* **Alexinparis** (for MultiWii),
-* **timecop** (for Baseflight),
-* **Dominic Clifton** (for Cleanflight),
-* **borisbstyle** (for Betaflight), and
-* **Sambas** (for the original STM32F4 port).
-
-The Betaflight Configurator is forked from Cleanflight Configurator and its origins.
-
-Origins for Betaflight Configurator:
-* **Dominic Clifton** (for Cleanflight configurator), and
-* **ctn** (for the original Configurator).
-
-Big thanks to current and past contributors:
-* Budden, Martin (martinbudden)
-* Bardwell, Joshua (joshuabardwell)
-* Blackman, Jason (blckmn)
-* ctzsnooze
-* Höglund, Anders (andershoglund)
-* Ledvina, Petr (ledvinap) - **IO code awesomeness!**
-* kc10kevin
-* Keeble, Gary (MadmanK)
-* Keller, Michael (mikeller) - **Configurator brilliance**
-* Kravcov, Albert (skaman82) - **Configurator brilliance**
-* MJ666
-* Nathan (nathantsoi)
-* ravnav
-* sambas - **bringing us the F4**
-* savaga
-* Stålheim, Anton (KiteAnton)
-
-And many many others who haven't been mentioned....
+Betaflight is licensed under the GPLv3. See the upstream project for general documentation: https://github.com/betaflight/betaflight
