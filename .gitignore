@@ -61,3 +61,7 @@ eeprom.bin
 
 # SITL run directory (eeprom.bin)
 /test/sitl-run*/
+
+# Python bytecode
+__pycache__/
+*.pyc
