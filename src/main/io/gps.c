@@ -1599,6 +1599,11 @@ void _update_checksum(uint8_t *data, uint8_t len, uint8_t *ck_a, uint8_t *ck_b)
     }
 }
 
+#ifdef USE_SERVO_DRIVER
+static gpsPvt_t latestPvt;
+static bool latestPvtNew;
+#endif
+
 static bool UBLOX_parse_gps(void)
 {
     uint32_t i;
@@ -1658,6 +1663,18 @@ static bool UBLOX_parse_gps(void)
         gpsSol.groundSpeed = _buffer.pvt.gSpeed / 10;    // cm/s
         gpsSol.groundCourse = (uint16_t) (_buffer.pvt.headMot / 10000);     // Heading 2D deg * 100000 rescaled to deg * 10
         _new_speed = true;
+#ifdef USE_SERVO_DRIVER
+        latestPvt = (gpsPvt_t) {
+            .nano = _buffer.pvt.nano, .year = _buffer.pvt.year, .month = _buffer.pvt.month, .day = _buffer.pvt.day,
+            .hour = _buffer.pvt.hour, .min = _buffer.pvt.min, .sec = _buffer.pvt.sec, .valid = _buffer.pvt.valid,
+            .fixType = _buffer.pvt.fixType, .flags = _buffer.pvt.flags, .numSV = _buffer.pvt.numSV,
+            .lon = _buffer.pvt.lon, .lat = _buffer.pvt.lat, .height = _buffer.pvt.height, .hMSL = _buffer.pvt.hMSL,
+            .hAcc = _buffer.pvt.hAcc, .vAcc = _buffer.pvt.vAcc,
+            .velN = _buffer.pvt.velN, .velE = _buffer.pvt.velE, .velD = _buffer.pvt.velD, .gSpeed = _buffer.pvt.gSpeed,
+            .headMot = _buffer.pvt.headMot, .sAcc = _buffer.pvt.sAcc, .pDOP = _buffer.pvt.pDOP,
+        };
+        latestPvtNew = true;
+#endif
 #ifdef USE_RTC_TIME
         //set clock, when gps time is available
         if (!rtcHasTime() && (_buffer.pvt.valid & NAV_VALID_DATE) && (_buffer.pvt.valid & NAV_VALID_TIME)) {
@@ -1795,6 +1812,18 @@ static bool UBLOX_parse_gps(void)
     }
     return false;
 }
+
+#ifdef USE_SERVO_DRIVER
+bool gpsGetNewPvt(gpsPvt_t *pvt)
+{
+    if (!latestPvtNew) {
+        return false;
+    }
+    *pvt = latestPvt;
+    latestPvtNew = false;
+    return true;
+}
+#endif
 
 static bool gpsNewFrameUBLOX(uint8_t data)
 {

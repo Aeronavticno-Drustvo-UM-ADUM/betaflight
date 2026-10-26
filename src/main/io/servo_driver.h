@@ -24,11 +24,12 @@
 #include "common/time.h"
 
 // Servo driver mode: the flight controller core (gyro, PID, RX, mixer) is not run.
-// Servo and motor outputs are driven directly from MAVLink RC_CHANNELS_OVERRIDE
-// (channels 1-5 are servos, channels 6-8 are motors, pulse width in us), and the
-// arm state arrives in MAVLink HEARTBEAT (or MAV_CMD_COMPONENT_ARM_DISARM).
-// The outputs are disarmed, and the servos are centred, when no RC_CHANNELS_OVERRIDE is received for
-// SERVO_DRIVER_RC_TIMEOUT_US: servos centre, motors go to the mincommand pulse.
+// The master flight controller sends MAVLink 2.0 ADUM_AUX_CHANNELS (arming status, servo[8], motor[3] in us):
+// - servos 1-5 always move to the pulse that arrives, armed or not (only a 500-2500 us clamp applies)
+// - motors 1-3 stay at the minimum command unless the last frame said armed; the values of an armed frame apply at once
+// - no valid MAVLink frame for SERVO_DRIVER_COMMS_TIMEOUT_US while armed: disarm, motors go to the
+//   minimum command and the servos keep the position of the last frame
+// The board answers with a HEARTBEAT and with ADUM_GPS_PVT for every GPS solution.
 
 #define SERVO_DRIVER_SERVO_COUNT   5
 #define SERVO_DRIVER_MOTOR_COUNT   3

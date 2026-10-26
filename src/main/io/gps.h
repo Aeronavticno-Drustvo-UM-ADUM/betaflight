@@ -119,6 +119,28 @@ typedef struct gpsSolutionData_s {
     uint8_t numSat;
 } gpsSolutionData_t;
 
+#ifdef USE_SERVO_DRIVER
+// Latest UBX NAV-PVT solution, raw UBX units (see the u-blox interface description), for ADUM_GPS_PVT
+typedef struct gpsPvt_s {
+    int32_t nano;
+    uint16_t year;
+    uint8_t month, day, hour, min, sec;
+    uint8_t valid;          // bit0 validDate, bit1 validTime
+    uint8_t fixType;
+    uint8_t flags;          // bit0 gnssFixOK, bit1 diffSoln, bits 6-7 carrSoln (1 float, 2 fixed)
+    uint8_t numSV;
+    int32_t lon, lat, height, hMSL;   // degE7, degE7, mm, mm
+    uint32_t hAcc, vAcc;              // mm
+    int32_t velN, velE, velD, gSpeed; // mm/s
+    int32_t headMot;                  // degE5
+    uint32_t sAcc;                    // mm/s
+    uint16_t pDOP;                    // x0.01
+} gpsPvt_t;
+
+// Copies the newest NAV-PVT solution and returns true once per received solution
+bool gpsGetNewPvt(gpsPvt_t *pvt);
+#endif
+
 typedef struct gpsData_s {
     uint32_t errors;                // gps error counter - crc error/lost of data/sync etc..
     uint32_t timeouts;
