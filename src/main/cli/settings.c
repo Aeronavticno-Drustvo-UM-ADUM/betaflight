@@ -105,6 +105,9 @@
 #include "pg/sdio.h"
 #include "pg/rcdevice.h"
 #include "pg/stats.h"
+#ifdef USE_SERVO_DRIVER
+#include "io/servo_driver.h"
+#endif
 #include "pg/board.h"
 
 #include "rx/a7105_flysky.h"
@@ -1732,6 +1735,11 @@ const clivalue_t valueTable[] = {
     { "box_user_2_name", VAR_UINT8 | HARDWARE_VALUE | MODE_STRING, .config.string = { 1, MAX_BOX_USER_NAME_LENGTH, STRING_FLAGS_NONE }, PG_MODE_ACTIVATION_CONFIG, offsetof(modeActivationConfig_t, box_user_2_name) },
     { "box_user_3_name", VAR_UINT8 | HARDWARE_VALUE | MODE_STRING, .config.string = { 1, MAX_BOX_USER_NAME_LENGTH, STRING_FLAGS_NONE }, PG_MODE_ACTIVATION_CONFIG, offsetof(modeActivationConfig_t, box_user_3_name) },
     { "box_user_4_name", VAR_UINT8 | HARDWARE_VALUE | MODE_STRING, .config.string = { 1, MAX_BOX_USER_NAME_LENGTH, STRING_FLAGS_NONE }, PG_MODE_ACTIVATION_CONFIG, offsetof(modeActivationConfig_t, box_user_4_name) },
+#endif
+
+#ifdef USE_SERVO_DRIVER
+    { "sd_link_timeout_ms", VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 100, 5000 }, PG_SERVO_DRIVER_CONFIG, offsetof(servoDriverConfig_t, linkTimeoutMs) },
+    { "sd_boot_grace_ms",   VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 10000 }, PG_SERVO_DRIVER_CONFIG, offsetof(servoDriverConfig_t, bootGraceMs) },
 #endif
 };
 

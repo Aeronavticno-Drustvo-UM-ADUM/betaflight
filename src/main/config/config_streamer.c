@@ -27,6 +27,10 @@
 
 #include "config/config_streamer.h"
 
+#ifdef USE_SERVO_DRIVER
+#include "io/servo_driver.h"
+#endif
+
 #if !defined(CONFIG_IN_FLASH)
 #if defined(CONFIG_IN_RAM) && defined(PERSISTENT)
 PERSISTENT uint8_t eepromData[EEPROM_SIZE];
@@ -505,11 +509,17 @@ static int write_word(config_streamer_t *c, config_streamer_buffer_align_type_t 
         return -2;
     }
 #else // !STM32H7 && !STM32F7 && !STM32G4
+#ifdef USE_SERVO_DRIVER
+    servoDriverWatchdogFeed();      // page erase / programming blocks for tens of ms: keep the watchdog fed
+#endif
     if (c->address % FLASH_PAGE_SIZE == 0) {
 #if defined(STM32F4)
         const FLASH_Status status = FLASH_EraseSector(getFLASHSectorForEEPROM(), VoltageRange_3); //0x08080000 to 0x080A0000
 #else // STM32F3, STM32F1
         const FLASH_Status status = FLASH_ErasePage(c->address);
+#endif
+#ifdef USE_SERVO_DRIVER
+        servoDriverWatchdogFeed();
 #endif
         if (status != FLASH_COMPLETE) {
             return -1;

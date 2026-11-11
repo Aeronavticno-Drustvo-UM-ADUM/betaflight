@@ -46,10 +46,14 @@
 #include "io/serial.h"
 #include "io/servo_driver.h"
 
-#include "pg/motor.h"
+#ifdef USE_CLI
+#include "cli/cli.h"
+#endif
 
-#define SERVO_DRIVER_COMMS_TIMEOUT_US   500000  // armed and no valid MAVLink frame for this long: disarm
-#define SERVO_DRIVER_HEARTBEAT_US       1000000
+#include "pg/motor.h"
+#include "pg/pg_ids.h"
+
+#define SERVO_DRIVER_ONE_SECOND_US      1000000
 #define SERVO_DRIVER_MAVLINK_SYSID      1       // not checked on receive, placeholders until the ids are agreed
 #define SERVO_DRIVER_MAVLINK_COMPID     1
 #define SERVO_DRIVER_PULSE_MIN          500     // the only limits applied to servos
@@ -58,52 +62,107 @@
 #define SERVO_DRIVER_HEADING_MIN_SPEED  300     // mm/s, below this heading_motion is not flagged valid
 #define SERVO_DRIVER_DEFAULT_BAUD       BAUD_115200
 
+#define SERVO_DRIVER_LINK_READY_FRAMES  5       // P1: consecutive valid AUX frames
+#define SERVO_DRIVER_LINK_CRC_QUIET_US  1000000 // P1: no CRC error for this long
+#define SERVO_DRIVER_CONFIG_QUIET_US    2000000 // P4: no MSP write / motor test for this long
+#define SERVO_DRIVER_REJECT_TEXT_US     500000  // ARM REJECTED text at most 2 Hz
+#define SERVO_DRIVER_LOW_RATE_HZ        20      // below this AUX frame rate: warning
+#define SERVO_DRIVER_LOW_RATE_TEXT_US   10000000
+#define SERVO_DRIVER_PARSER_RESET_US    1000000 // no valid frame for this long: reset the parser, every 1 s
+#define SERVO_DRIVER_UART_REINIT_US     2000000 // no valid frame for this long: re-init the UART, every 2 s
+
 #define MAVLINK_CHANNEL                 MAVLINK_COMM_0
+
+PG_REGISTER_WITH_RESET_TEMPLATE(servoDriverConfig_t, servoDriverConfig, PG_SERVO_DRIVER_CONFIG, 0);
+
+PG_RESET_TEMPLATE(servoDriverConfig_t, servoDriverConfig,
+    .linkTimeoutMs = 500,
+    .bootGraceMs = 2000,
+);
+
+typedef enum {
+    SD_DISARMED = 0,
+    SD_ARMED,
+    SD_FAILSAFE,
+} servoDriverState_e;
+
+typedef enum {
+    REJECT_LINK_NOT_READY = 0,
+    REJECT_BOOT_GRACE,
+    REJECT_MOTOR_CONFIG,
+    REJECT_CONFIG_ACTIVE,
+    REJECT_NONE,
+} rejectReason_e;
+
+static const char *const rejectText[] = {
+    [REJECT_LINK_NOT_READY] = "ARM REJECTED: LINK_NOT_READY",
+    [REJECT_BOOT_GRACE]     = "ARM REJECTED: BOOT_GRACE",
+    [REJECT_MOTOR_CONFIG]   = "ARM REJECTED: MOTOR_CONFIG",
+    [REJECT_CONFIG_ACTIVE]  = "ARM REJECTED: CONFIG_ACTIVE",
+};
 
 static serialPort_t *mavlinkPort;
 static mavlink_message_t rxMessage;
 static mavlink_status_t rxStatus;
 
 static uint16_t motorPulse[SERVO_DRIVER_MOTOR_COUNT];
-static bool armed;              // arming_status of the last ADUM_AUX_CHANNELS, cleared on loss of communication
-static timeUs_t lastCommsUs;    // last valid MAVLink frame of any kind
-static timeUs_t lastHeartbeatUs;
+static servoDriverState_e state;
+static bool sessionActive;      // link session: valid ADUM_AUX_CHANNELS seen and none missing for longer than the link timeout
+static bool prevFrameArmed;     // arming_status of the previous AUX frame of the session
+static uint8_t validFrames;     // consecutive valid AUX frames of the session (saturates), cleared by a parse/CRC error
+static timeUs_t sessionStartUs;
+static timeUs_t lastAuxUs;      // last valid ADUM_AUX_CHANNELS, the only frame that refreshes the link timer
+static timeUs_t lastCrcErrorUs;
+static bool haveCrcError;
+static bool bootGraceDone;
+static timeUs_t lastConfigActivityUs;
+static bool haveConfigActivity;
+static bool saveBusy;
+
+static timeUs_t lastTickUs;     // 1 Hz: HEARTBEAT, SYS_STATUS, window statistics
+static timeUs_t lastRejectTextUs;
+static bool haveRejectText;
+static timeUs_t lastLowRateTextUs;
+static bool haveLowRateText;
+static timeUs_t lastParserResetUs;
+#ifndef SIMULATOR_BUILD
+static timeUs_t lastUartResetUs;
+#endif
+
+// Counters of SYS_STATUS (wrap at 65535)
+static uint16_t errorsComm;     // CRC / parse errors since boot
+static uint16_t txDrops;        // frames dropped because the TX buffer was full
+static uint16_t clamped;        // values clamped or replaced by "no value" handling
+// Window of the last second
+static uint16_t winAuxFrames;
+static uint16_t winMessages;
+static uint16_t winLost;
+static bool haveSeq;
+static uint8_t lastSeq;
 
 static bool pulseValid(uint16_t pulseUs)
 {
     return pulseUs != SERVO_DRIVER_PULSE_INVALID && pulseUs != UINT16_MAX;
 }
 
-// Motors are held at the minimum command (zero throttle) unless armed
+// Motors are held at the minimum command (zero throttle) unless armed. Called every task cycle.
 static void servoDriverWriteMotors(void)
 {
     float values[SERVO_DRIVER_MOTOR_COUNT];
     for (int i = 0; i < SERVO_DRIVER_MOTOR_COUNT; i++) {
-        values[i] = armed ? motorPulse[i] : motorConfig()->mincommand;
+        values[i] = (state == SD_ARMED) ? motorPulse[i] : motorConfig()->mincommand;
     }
     motorWriteAll(values);
 }
 
-// Servos always follow the pulse that arrived, whatever the arm state. No limits apart from the clamp.
+// Servos always follow the pulse that arrived, whatever the state. No limits apart from the clamp.
 static void servoDriverWriteServo(int index, uint16_t pulseUs)
 {
-    pwmWriteServo(index, constrain(pulseUs, SERVO_DRIVER_PULSE_MIN, SERVO_DRIVER_PULSE_MAX));
-}
-
-static void servoDriverSetArmed(bool newArmed)
-{
-    if (newArmed == armed) {
-        return;
+    const uint16_t limited = constrain(pulseUs, SERVO_DRIVER_PULSE_MIN, SERVO_DRIVER_PULSE_MAX);
+    if (limited != pulseUs) {
+        clamped++;
     }
-    armed = newArmed;
-    for (int i = 0; i < SERVO_DRIVER_MOTOR_COUNT; i++) {
-        motorPulse[i] = motorConfig()->mincommand;
-    }
-    if (armed) {
-        ENABLE_ARMING_FLAG(ARMED);
-    } else {
-        DISABLE_ARMING_FLAG(ARMED);
-    }
+    pwmWriteServo(index, limited);
 }
 
 // Sends a frame if the port has room for all of it (never blocks, never sends half a frame)
@@ -111,18 +170,61 @@ static void servoDriverSend(const mavlink_message_t *msg)
 {
     uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
     const uint16_t length = mavlink_msg_to_send_buffer(buffer, msg);
-    if (serialTxBytesFree(mavlinkPort) < length) {
+    if (!mavlinkPort || serialTxBytesFree(mavlinkPort) < length) {
+        txDrops++;
         return;
     }
     serialWriteBuf(mavlinkPort, buffer, length);
 }
 
-static void servoDriverSendHeartbeat(void)
+static void servoDriverSendStatusText(uint8_t severity, const char *text)
 {
     mavlink_message_t msg;
+    mavlink_msg_statustext_pack(SERVO_DRIVER_MAVLINK_SYSID, SERVO_DRIVER_MAVLINK_COMPID, &msg, severity, text, 0, 0);
+    servoDriverSend(&msg);
+}
+
+static void servoDriverSetState(servoDriverState_e newState)
+{
+    if (newState == state) {
+        return;
+    }
+    state = newState;
+    for (int i = 0; i < SERVO_DRIVER_MOTOR_COUNT; i++) {
+        motorPulse[i] = motorConfig()->mincommand;
+    }
+    // ARMED flag stays set in FAILSAFE (armed intent): the upstream "not while armed" checks keep working
+    if (state != SD_DISARMED) {
+        ENABLE_ARMING_FLAG(ARMED);
+    } else {
+        DISABLE_ARMING_FLAG(ARMED);
+    }
+}
+
+static void servoDriverSendHeartbeat(void)
+{
+    uint8_t baseMode = 0;
+    uint8_t systemStatus = MAV_STATE_STANDBY;
+    if (state == SD_ARMED) {
+        baseMode = MAV_MODE_FLAG_SAFETY_ARMED;
+        systemStatus = MAV_STATE_ACTIVE;
+    } else if (state == SD_FAILSAFE) {
+        systemStatus = MAV_STATE_CRITICAL;
+    }
+    mavlink_message_t msg;
     mavlink_msg_heartbeat_pack(SERVO_DRIVER_MAVLINK_SYSID, SERVO_DRIVER_MAVLINK_COMPID, &msg,
-        MAV_TYPE_GENERIC, MAV_AUTOPILOT_GENERIC, armed ? MAV_MODE_FLAG_SAFETY_ARMED : 0, 0,
-        armed ? MAV_STATE_ACTIVE : MAV_STATE_STANDBY);
+        MAV_TYPE_GENERIC, MAV_AUTOPILOT_GENERIC, baseMode, 0, systemStatus);
+    servoDriverSend(&msg);
+}
+
+static void servoDriverSendSysStatus(void)
+{
+    // lost AUX frames of the last second from sequence gaps, in 0.01 %
+    const uint32_t total = (uint32_t)winMessages + winLost;
+    const uint16_t dropRate = total ? (uint16_t)((uint32_t)winLost * 10000 / total) : 0;
+    mavlink_message_t msg;
+    mavlink_msg_sys_status_pack(SERVO_DRIVER_MAVLINK_SYSID, SERVO_DRIVER_MAVLINK_COMPID, &msg,
+        0, 0, 0, 0, 0, 0, 0, dropRate, errorsComm, txDrops, clamped, 0, 0, 0, 0, 0);
     servoDriverSend(&msg);
 }
 
@@ -180,35 +282,131 @@ static void servoDriverSendGpsPvt(const gpsPvt_t *pvt)
     servoDriverSend(&msg);
 }
 
-static void servoDriverHandleMessage(const mavlink_message_t *msg)
+// Own-health checks P1-P5 of the arm edge (docs/arming_safety.md section 4)
+static rejectReason_e servoDriverCheckArmEdge(timeUs_t currentTimeUs)
 {
-    if (msg->msgid != MAVLINK_MSG_ID_ADUM_AUX_CHANNELS) {
-        return;     // HEARTBEAT only counts as communication
+    if (validFrames < SERVO_DRIVER_LINK_READY_FRAMES
+        || (haveCrcError && cmpTimeUs(currentTimeUs, lastCrcErrorUs) < SERVO_DRIVER_LINK_CRC_QUIET_US)) {
+        return REJECT_LINK_NOT_READY;
     }
+    if (!bootGraceDone) {
+        return REJECT_BOOT_GRACE;
+    }
+    if (motorConfig()->dev.motorPwmProtocol == PWM_TYPE_DISABLED || !motorIsEnabled()) {
+        return REJECT_MOTOR_CONFIG;
+    }
+    if (
+#ifdef USE_CLI
+        cliMode ||
+#endif
+        saveBusy
+        || (haveConfigActivity && cmpTimeUs(currentTimeUs, lastConfigActivityUs) < SERVO_DRIVER_CONFIG_QUIET_US)) {
+        return REJECT_CONFIG_ACTIVE;
+    }
+    return REJECT_NONE;
+}
 
+static void servoDriverHandleAux(const mavlink_message_t *msg, timeUs_t currentTimeUs)
+{
     mavlink_adum_aux_channels_t aux;
     mavlink_msg_adum_aux_channels_decode(msg, &aux);
+    const bool armedFrame = (aux.arming_status == ADUM_ARMING_STATUS_ARMED);
 
-    servoDriverSetArmed(aux.arming_status == ADUM_ARMING_STATUS_ARMED);
+    const bool newSession = !sessionActive;
+    if (newSession) {
+        sessionActive = true;
+        sessionStartUs = currentTimeUs;
+        validFrames = 0;
+    }
+    if (validFrames < UINT8_MAX) {
+        validFrames++;
+    }
+    lastAuxUs = currentTimeUs;
+    winAuxFrames++;
+
+    switch (state) {
+    case SD_DISARMED:
+        if (armedFrame) {
+            if (newSession) {
+                // First frame of a link session says ARMED (reboot or link recovered while the master was armed): the master is primary, no checks
+                servoDriverSetState(SD_ARMED);
+            } else if (!prevFrameArmed) {
+                // Observed arm edge: own-health checks. On reject the board stays disarmed until the next edge.
+                const rejectReason_e reason = servoDriverCheckArmEdge(currentTimeUs);
+                if (reason == REJECT_NONE) {
+                    servoDriverSetState(SD_ARMED);
+                } else if (!haveRejectText || cmpTimeUs(currentTimeUs, lastRejectTextUs) >= SERVO_DRIVER_REJECT_TEXT_US) {
+                    haveRejectText = true;
+                    lastRejectTextUs = currentTimeUs;
+                    servoDriverSendStatusText(MAV_SEVERITY_WARNING, rejectText[reason]);
+                }
+            }
+        }
+        break;
+    case SD_ARMED:
+        if (!armedFrame) {
+            servoDriverSetState(SD_DISARMED);
+        }
+        break;
+    case SD_FAILSAFE:
+        // In-flight recovery: no checks, the master decides
+        servoDriverSetState(armedFrame ? SD_ARMED : SD_DISARMED);
+        servoDriverSendStatusText(MAV_SEVERITY_CRITICAL, "FAILSAFE: link restored");
+        break;
+    }
+    prevFrameArmed = armedFrame;
 
     // Servos 1-5. Servos 6-8 of the message have no output on this board.
     for (int i = 0; i < SERVO_DRIVER_SERVO_COUNT; i++) {
         if (pulseValid(aux.servo[i])) {
             servoDriverWriteServo(i, aux.servo[i]);
+        } else {
+            clamped++;
         }
     }
 
     // The motor values arrive in the same frame as the arming status, so they are never older than the arm state
-    if (armed) {
+    if (state == SD_ARMED) {
         for (int i = 0; i < SERVO_DRIVER_MOTOR_COUNT; i++) {
-            motorPulse[i] = pulseValid(aux.motor[i]) ?
-                constrain(aux.motor[i], motorConfig()->mincommand, motorConfig()->maxthrottle) : motorConfig()->mincommand;
+            if (pulseValid(aux.motor[i])) {
+                motorPulse[i] = constrain(aux.motor[i], motorConfig()->mincommand, motorConfig()->maxthrottle);
+                if (motorPulse[i] != aux.motor[i]) {
+                    clamped++;
+                }
+            } else {
+                motorPulse[i] = motorConfig()->mincommand;
+                clamped++;
+            }
         }
     }
-    servoDriverWriteMotors();
 }
 
-void servoDriverInit(void)
+// Sequence gaps count as lost frames (all messages of the master share the sequence counter)
+static void servoDriverTrackSequence(uint8_t seq)
+{
+    if (haveSeq) {
+        winLost += (uint8_t)(seq - lastSeq - 1);
+    }
+    haveSeq = true;
+    lastSeq = seq;
+    winMessages++;
+}
+
+// No valid ADUM_AUX_CHANNELS for the link timeout ends the link session; while armed that is FAILSAFE (it never times out)
+static void servoDriverCheckLinkTimeout(timeUs_t currentTimeUs)
+{
+    if (sessionActive
+        && cmpTimeUs(currentTimeUs, lastAuxUs) > (int32_t)servoDriverConfig()->linkTimeoutMs * 1000) {
+        sessionActive = false;
+        haveSeq = false;
+        if (state == SD_ARMED) {
+            servoDriverSetState(SD_FAILSAFE);
+            servoDriverSendStatusText(MAV_SEVERITY_CRITICAL, "FAILSAFE: link lost");
+        }
+    }
+}
+
+static void servoDriverOpenPort(void)
 {
     const serialPortConfig_t *portConfig = findSerialPortConfig(FUNCTION_TELEMETRY_MAVLINK);
     if (portConfig) {
@@ -219,6 +417,53 @@ void servoDriverInit(void)
         mavlinkPort = openSerialPort(portConfig->identifier, FUNCTION_TELEMETRY_MAVLINK, NULL, NULL,
             baudRates[baudRateIndex], MODE_RXTX, SERIAL_NOT_INVERTED);
     }
+}
+
+// Link recovery: reset the parser every 1 s and re-init the UART every 2 s while no valid frame arrives
+static void servoDriverRecoverLink(timeUs_t currentTimeUs)
+{
+    const int32_t silentUs = cmpTimeUs(currentTimeUs, lastAuxUs);
+    if (silentUs >= SERVO_DRIVER_PARSER_RESET_US && cmpTimeUs(currentTimeUs, lastParserResetUs) >= SERVO_DRIVER_PARSER_RESET_US) {
+        lastParserResetUs = currentTimeUs;
+        mavlink_reset_channel_status(MAVLINK_CHANNEL);
+    }
+#ifndef SIMULATOR_BUILD
+    // ASSUMPTION: on SITL the serial port is a TCP socket, re-opening it is not meaningful: the parser reset is enough there
+    if (silentUs >= SERVO_DRIVER_UART_REINIT_US && cmpTimeUs(currentTimeUs, lastUartResetUs) >= SERVO_DRIVER_UART_REINIT_US) {
+        lastUartResetUs = currentTimeUs;
+        if (mavlinkPort) {
+            closeSerialPort(mavlinkPort);
+            mavlinkPort = NULL;
+        }
+        servoDriverOpenPort();
+    }
+#endif
+}
+
+#ifdef STM32F10X
+// Independent watchdog, 250 ms nominal (LSI 40 kHz +-50 %: real timeout 170-500 ms): prescaler /32 -> 1250 Hz, reload 312
+static void servoDriverWatchdogStart(void)
+{
+    IWDG->KR = 0x5555;      // unlock PR / RLR
+    IWDG->PR = 3;
+    IWDG->RLR = 312;
+    IWDG->KR = 0xAAAA;
+    IWDG->KR = 0xCCCC;      // start, cannot be stopped
+}
+
+void servoDriverWatchdogFeed(void)
+{
+    IWDG->KR = 0xAAAA;
+}
+#else
+void servoDriverWatchdogFeed(void)
+{
+}
+#endif
+
+void servoDriverInit(void)
+{
+    servoDriverOpenPort();
 
     // Until the first frame arrives: servos in the middle, motors at zero throttle
     for (int i = 0; i < SERVO_DRIVER_SERVO_COUNT; i++) {
@@ -226,22 +471,67 @@ void servoDriverInit(void)
     }
     motorEnable();
     servoDriverWriteMotors();
+#ifdef STM32F10X
+    servoDriverWatchdogStart();
+#endif
 }
 
 void servoDriverUpdate(timeUs_t currentTimeUs)
 {
+    servoDriverWatchdogFeed();
+
+    if (!bootGraceDone && currentTimeUs / 1000 >= servoDriverConfig()->bootGraceMs) {
+        bootGraceDone = true;
+    }
+
+    // Failsafe check first, so that the HEARTBEAT of this cycle shows the state
+    servoDriverCheckLinkTimeout(currentTimeUs);
+
     if (mavlinkPort) {
+        mavlink_status_t *channelStatus = mavlink_get_channel_status(MAVLINK_CHANNEL);
         while (serialRxBytesWaiting(mavlinkPort)) {
             const uint8_t c = serialRead(mavlinkPort);
-            if (mavlink_parse_char(MAVLINK_CHANNEL, c, &rxMessage, &rxStatus)) {
-                lastCommsUs = currentTimeUs;
-                servoDriverHandleMessage(&rxMessage);
+            const uint8_t result = mavlink_parse_char(MAVLINK_CHANNEL, c, &rxMessage, &rxStatus);
+            // parse errors of this call: counted inside the frame parser (copied to rxStatus) and bad CRC (added by mavlink_parse_char)
+            const uint16_t errors = rxStatus.packet_rx_drop_count + channelStatus->parse_error;
+            channelStatus->parse_error = 0;
+            if (errors) {
+                errorsComm += errors;
+                haveCrcError = true;
+                lastCrcErrorUs = currentTimeUs;
+                validFrames = 0;
+            }
+            if (result == MAVLINK_FRAMING_OK) {
+                servoDriverTrackSequence(rxMessage.seq);
+                if (rxMessage.msgid == MAVLINK_MSG_ID_ADUM_AUX_CHANNELS) {
+                    servoDriverHandleAux(&rxMessage, currentTimeUs);
+                }
+                // incoming HEARTBEAT and other messages are otherwise ignored
             }
         }
+        // a frame that arrives after a longer gap is the first of a new session: handled above, the timeout check ran before
+    }
 
-        if (cmpTimeUs(currentTimeUs, lastHeartbeatUs) >= SERVO_DRIVER_HEARTBEAT_US) {
-            lastHeartbeatUs = currentTimeUs;
+    servoDriverRecoverLink(currentTimeUs);
+
+    // Motor output on every cycle in every state: the ESCs always see a continuous pulse train
+    servoDriverWriteMotors();
+
+    if (mavlinkPort) {
+        if (cmpTimeUs(currentTimeUs, lastTickUs) >= SERVO_DRIVER_ONE_SECOND_US) {
+            // low frame rate: only for a session that was already active during the whole window
+            if (sessionActive && cmpTimeUs(sessionStartUs, lastTickUs) <= 0 && winAuxFrames < SERVO_DRIVER_LOW_RATE_HZ
+                && (!haveLowRateText || cmpTimeUs(currentTimeUs, lastLowRateTextUs) >= SERVO_DRIVER_LOW_RATE_TEXT_US)) {
+                haveLowRateText = true;
+                lastLowRateTextUs = currentTimeUs;
+                servoDriverSendStatusText(MAV_SEVERITY_WARNING, "LINK: low frame rate");
+            }
+            lastTickUs = currentTimeUs;
             servoDriverSendHeartbeat();
+            servoDriverSendSysStatus();
+            winAuxFrames = 0;
+            winMessages = 0;
+            winLost = 0;
         }
 
         gpsPvt_t pvt;
@@ -249,17 +539,27 @@ void servoDriverUpdate(timeUs_t currentTimeUs)
             servoDriverSendGpsPvt(&pvt);
         }
     }
-
-    // Lost communication: disarm, which pulls the motors to zero. The servos stay where the last frame put them.
-    if (armed && cmpTimeUs(currentTimeUs, lastCommsUs) > SERVO_DRIVER_COMMS_TIMEOUT_US) {
-        servoDriverSetArmed(false);
-        servoDriverWriteMotors();
-    }
 }
 
 bool servoDriverIsArmed(void)
 {
-    return armed;
+    return state == SD_ARMED;
+}
+
+bool servoDriverConfigLocked(void)
+{
+    return state != SD_DISARMED;
+}
+
+void servoDriverNoteConfigActivity(void)
+{
+    lastConfigActivityUs = micros();
+    haveConfigActivity = true;
+}
+
+void servoDriverSetSaveBusy(bool busy)
+{
+    saveBusy = busy;
 }
 
 #endif // USE_SERVO_DRIVER

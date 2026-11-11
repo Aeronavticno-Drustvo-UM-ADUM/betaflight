@@ -118,6 +118,9 @@ bool cliMode = false;
 #include "io/gps.h"
 #include "io/ledstrip.h"
 #include "io/serial.h"
+#ifdef USE_SERVO_DRIVER
+#include "io/servo_driver.h"
+#endif
 #include "io/transponder_ir.h"
 #include "io/usb_msc.h"
 #include "io/vtx_control.h"
@@ -3537,6 +3540,12 @@ static char *checkCommand(char *cmdline, const char *command)
 
 static void cliRebootEx(rebootTarget_e rebootTarget)
 {
+#ifdef USE_SERVO_DRIVER
+    if (servoDriverConfigLocked()) {
+        cliPrintErrorLinef("reboot", "REFUSED WHILE ARMED");
+        return;
+    }
+#endif
     cliPrint("\r\nRebooting");
     cliWriterFlush();
     waitForSerialPortToFinishTransmitting(cliPort);
@@ -4015,6 +4024,13 @@ static void cliMixer(const char *cmdName, char *cmdline)
 
 static void cliMotor(const char *cmdName, char *cmdline)
 {
+#ifdef USE_SERVO_DRIVER
+    servoDriverNoteConfigActivity();
+    if (servoDriverConfigLocked()) {
+        cliPrintErrorLinef(cmdName, "REFUSED WHILE ARMED");
+        return;
+    }
+#endif
     if (isEmpty(cmdline)) {
         cliShowInvalidArgumentCountError(cmdName);
 
@@ -4259,6 +4275,13 @@ static void cliSave(const char *cmdName, char *cmdline)
 {
     UNUSED(cmdline);
 
+#ifdef USE_SERVO_DRIVER
+    if (servoDriverConfigLocked()) {
+        cliPrintErrorLinef(cmdName, "REFUSED WHILE ARMED");
+        return;
+    }
+#endif
+
     if (tryPrepareSave(cmdName)) {
         writeEEPROM();
         cliPrintHashLine("saving");
@@ -4346,6 +4369,12 @@ bool hasCustomDefaults(void)
 
 static void cliDefaults(const char *cmdName, char *cmdline)
 {
+#ifdef USE_SERVO_DRIVER
+    if (servoDriverConfigLocked()) {
+        cliPrintErrorLinef(cmdName, "REFUSED WHILE ARMED");
+        return;
+    }
+#endif
     bool saveConfigs = true;
     uint16_t parameterGroupId = 0;
 #if defined(USE_CUSTOM_DEFAULTS)
@@ -6871,6 +6900,11 @@ static bool cliProcessCustomDefaults(bool quiet)
 
 void cliEnter(serialPort_t *serialPort)
 {
+#ifdef USE_SERVO_DRIVER
+    if (servoDriverConfigLocked()) {
+        return;     // refused while armed or in failsafe
+    }
+#endif
     cliMode = true;
     cliPort = serialPort;
     setPrintfSerialPort(cliPort);

@@ -41,6 +41,10 @@
 #include "drivers/flash.h"
 #include "drivers/system.h"
 
+#ifdef USE_SERVO_DRIVER
+#include "io/servo_driver.h"
+#endif
+
 static uint16_t eepromConfigSize;
 
 typedef enum {
@@ -458,6 +462,9 @@ static bool writeSettingsToEEPROM(void)
 void writeConfigToEEPROM(void)
 {
     bool success = false;
+#ifdef USE_SERVO_DRIVER
+    servoDriverSetSaveBusy(true);   // P5: no arm edge is accepted while a save runs (failure path never returns)
+#endif
     // write it
     for (int attempt = 0; attempt < 3 && !success; attempt++) {
         if (writeSettingsToEEPROM()) {
@@ -476,6 +483,9 @@ void writeConfigToEEPROM(void)
 
 
     if (success && isEEPROMVersionValid() && isEEPROMStructureValid()) {
+#ifdef USE_SERVO_DRIVER
+        servoDriverSetSaveBusy(false);
+#endif
         return;
     }
 

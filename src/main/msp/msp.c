@@ -99,6 +99,9 @@
 #include "io/gps.h"
 #include "io/ledstrip.h"
 #include "io/serial.h"
+#ifdef USE_SERVO_DRIVER
+#include "io/servo_driver.h"
+#endif
 #include "io/serial_4way.h"
 #include "io/servos.h"
 #include "io/transponder_ir.h"
@@ -2209,6 +2212,11 @@ static mspResult_e mspFcProcessOutCommandWithArg(mspDescriptor_t srcDesc, int16_
         }
         break;
     case MSP_REBOOT:
+#ifdef USE_SERVO_DRIVER
+        if (servoDriverConfigLocked()) {
+            return MSP_RESULT_ERROR;
+        }
+#endif
         if (sbufBytesRemaining(src)) {
             rebootMode = sbufReadU8(src);
 
@@ -2472,6 +2480,13 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
     uint32_t i;
     uint8_t value;
     const unsigned int dataSize = sbufBytesRemaining(src);
+#ifdef USE_SERVO_DRIVER
+    // Every MSP write counts as configurator activity (arm check P4). While armed or in failsafe the persistent / motor writes are refused.
+    servoDriverNoteConfigActivity();
+    if (servoDriverConfigLocked() && (cmdMSP == MSP_EEPROM_WRITE || cmdMSP == MSP_SET_MOTOR || cmdMSP == MSP_RESET_CONF)) {
+        return MSP_RESULT_ERROR;
+    }
+#endif
     switch (cmdMSP) {
     case MSP_SELECT_SETTING:
         value = sbufReadU8(src);
