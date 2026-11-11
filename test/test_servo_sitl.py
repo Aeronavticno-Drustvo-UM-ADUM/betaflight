@@ -275,7 +275,9 @@ def main():
 
     if args.build or not os.path.exists(ELF):
         print("Building SITL with USE_SERVO_DRIVER ...")
-        subprocess.run(["make", "-C", ROOT, "TARGET=SITL", "OBJECT_DIR=" + OBJ_DIR, "EXTRA_FLAGS=-DUSE_SERVO_DRIVER",
+        # SITL uses the host gcc: dummy GCC_VERSION/GCC_REQUIRED_VERSION skip the arm-none-eabi-gcc check
+        subprocess.run(["make", "-C", ROOT, "TARGET=SITL", "GCC_VERSION=none", "GCC_REQUIRED_VERSION=none",
+                        "OBJECT_DIR=" + OBJ_DIR, "EXTRA_FLAGS=-DUSE_SERVO_DRIVER",
                         "-j%d" % os.cpu_count()], check=True, stdout=subprocess.DEVNULL)
 
     if not args.keep and os.path.exists(os.path.join(RUN_DIR, "eeprom.bin")):

@@ -29,10 +29,53 @@ Status: builds and flashes. The driver logic is tested on SITL (`test/test_servo
 - Everything else is removed to fit: OSD, blackbox, LED strip, VTX, SPI, beeper, most serial RX protocols and telemetry, resource remapping, plus the unused Open Location Code library (`make/source.mk`). Flash use is about 85 KB of 126 KB, RAM about 15.4 KB of 20 KB (2 KB of it is the reserved stack).
 - The CLI and MSP over USB/UART still work. The gyro, attitude and PID tabs of the configurator show nothing useful.
 
-## Build and flash
+## Build
+
+No local ARM toolchain is needed: the INAV build image from the sibling repo (`../inav/Dockerfile`, image `inav-build`) contains `arm-none-eabi-gcc` 10.3.1, host `gcc` 11.4, `make` and `python3` (Ubuntu 22.04).
+
+Create the image once (skip if `docker images -q inav-build` prints an ID; INAV's `./build.sh` creates it too):
 
 ```bash
-make TARGET=SATELLITEBOARD -j$(nproc)
+docker build -t inav-build --build-arg USER_ID="$(id -u)" --build-arg GROUP_ID="$(id -g)" ../inav
+```
+
+The image is built with your UID/GID, so files in `obj/` stay owned by you. Its default entrypoint is INAV's cmake/ninja script, so every command below replaces it with `--entrypoint`. This Makefile expects arm-none-eabi-gcc 9.3.1 and stops on any other version; `GCC_REQUIRED_VERSION=10.3.1` accepts the one in the image.
+
+Firmware (SATELLITEBOARD), run in this directory:
+
+```bash
+docker run --rm --entrypoint make -v "$PWD":/src -w /src inav-build \
+    TARGET=SATELLITEBOARD GCC_REQUIRED_VERSION=10.3.1 -j"$(nproc)"
+# -> obj/betaflight_4.3.2_SATELLITEBOARD_<commit>.hex
+```
+
+Clean: same command with `clean` added (or `rm -rf obj/main/SATELLITEBOARD`).
+
+### SITL
+
+SITL runs on the host and is built with the host `gcc`; it needs only `gcc` and `make`, no ARM toolchain and no Docker. The Makefile checks for arm-none-eabi-gcc even for SITL; giving `GCC_VERSION` and `GCC_REQUIRED_VERSION` the same dummy value skips that check. The test scripts do this themselves:
+
+```bash
+test/run_sitl.sh --build              # stock SITL for the configurator, tcp://127.0.0.1:5761
+test/test_servo_sitl.py --build       # servo driver SITL (USE_SERVO_DRIVER) + its test
+```
+
+Manual build:
+
+```bash
+# stock SITL -> obj/main/betaflight_SITL.elf
+make TARGET=SITL GCC_VERSION=none GCC_REQUIRED_VERSION=none -j"$(nproc)"
+
+# servo driver SITL -> obj/main_servotest/betaflight_SITL.elf
+make TARGET=SITL GCC_VERSION=none GCC_REQUIRED_VERSION=none \
+    OBJECT_DIR="$PWD/obj/main_servotest" EXTRA_FLAGS=-DUSE_SERVO_DRIVER -j"$(nproc)"
+```
+
+Do not build SITL in the Docker image and run it on the host: such a binary aborted with `malloc(): unaligned fastbin chunk detected` on a Fedora 43 host (it passes when also run inside the container).
+
+## Flash
+
+```bash
 tools/stlink-flash/setup_env.sh        # once
 tools/stlink-flash/fix_permissions.sh  # once, needs sudo (udev rule for the ST-Link)
 tools/stlink-flash/flash.sh            # flashes over SWD, see tools/stlink-flash/README.md

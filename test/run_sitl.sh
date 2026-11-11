@@ -32,7 +32,8 @@ done
 
 if [ "${BUILD}" -eq 1 ] || [ ! -x "${ELF}" ]; then
     echo "Building SITL..."
-    make -C "${ROOT}" TARGET=SITL -j"$(nproc)"
+    # SITL uses the host gcc: dummy GCC_VERSION/GCC_REQUIRED_VERSION skip the arm-none-eabi-gcc check
+    make -C "${ROOT}" TARGET=SITL GCC_VERSION=none GCC_REQUIRED_VERSION=none -j"$(nproc)"
 fi
 
 if ss -ltn 2>/dev/null | grep -q ":${PORT} "; then
