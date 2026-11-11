@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start Betaflight SITL standalone, to connect the configurator to it (no simulator needed).
 #
-#   test/run_sitl.sh [--build] [--reset] [--verbose]
+#   test/tools/run_sitl.sh [--build] [--reset] [--verbose]
 #
 #   --build    rebuild SITL before starting
 #   --reset    delete the saved config (eeprom.bin) first
@@ -12,9 +12,9 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "${HERE}/.." && pwd)"
+ROOT="$(cd "${HERE}/../.." && pwd)"
 ELF="${ROOT}/obj/main/betaflight_SITL.elf"
-RUN_DIR="${HERE}/sitl-run"
+RUN_DIR="${HERE}/../sitl-run"
 PORT=5761
 BUILD=0
 RESET=0

@@ -1,7 +1,7 @@
 # Betaflight CLI configuration for the SATELLITEBOARD servo driver.
 #
 # Paste it into the configurator CLI tab (it ends with "save"), or let
-# test/test_servo_sitl.py apply it to the SITL build. Lines starting with # are ignored.
+# test/run_tests.py apply it to the SITL build. Lines starting with # are ignored.
 #
 # MAVLink 2.0, ADUM dialect. The master sends ADUM_AUX_CHANNELS: arming status, servos 1-8 and motors 1-3.
 # Outputs on this board: servos 1-5, motors 1-3 (servos 6-8 of the message are ignored).

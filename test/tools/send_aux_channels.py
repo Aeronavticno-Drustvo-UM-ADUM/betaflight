@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Send MAVLink 2.0 ADUM_AUX_CHANNELS to a SATELLITEBOARD over a serial port, to check it with the real board.
 
-  test/send_aux_channels.py [PORT] [options]
+  test/tools/send_aux_channels.py [PORT] [options]
 
 Default: a 0.5 Hz sine sweep of servos 1-5 between 1000 and 2000 us (each servo shifted in phase),
 sent at 50 Hz, board DISARMED and motors at 1000 us. Press Ctrl-C to stop.
@@ -21,7 +21,7 @@ import sys
 import termios
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
 import mavlink_gen as mav  # noqa: E402
 
 BAUDS = {

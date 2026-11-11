@@ -196,7 +196,11 @@ static void* tcpThread(void* data) {
 
     dyad_init();
     dyad_setTickInterval(0.2f);
+#ifdef USE_SERVO_DRIVER
+    dyad_setUpdateTimeout(0.001f);   // test: writes from the scheduler thread must not wait up to 0.5 s for the dyad thread
+#else
     dyad_setUpdateTimeout(0.5f);
+#endif
 
     while (workerRunning) {
         dyad_update();
@@ -456,6 +460,24 @@ static void pwmWriteMotor(uint8_t index, float value)
         reportedMotor[index] = (int16_t)value;
         printf("[motor]%u=%d\n", index, (int)value);
         fflush(stdout);
+    }
+    // test hook: writes of motor 0 (one per task cycle) counted and printed once per second as [motorrate]<n>
+    if (index == 0) {
+        static unsigned motorWrites;
+        static int64_t windowStartUs;
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        const int64_t nowUs = (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+        if (windowStartUs == 0) {
+            windowStartUs = nowUs;
+        }
+        motorWrites++;
+        if (nowUs - windowStartUs >= 1000000) {
+            printf("[motorrate]%u\n", motorWrites);
+            fflush(stdout);
+            motorWrites = 0;
+            windowStartUs = nowUs;
+        }
     }
 #endif
     motorsPwm[index] = value - idlePulse;

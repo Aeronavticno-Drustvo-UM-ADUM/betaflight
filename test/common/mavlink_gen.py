@@ -3,7 +3,7 @@
 
 Generates what the master flight controller sends to the SATELLITEBOARD (HEARTBEAT, ADUM_AUX_CHANNELS)
 and parses what the board sends back (HEARTBEAT, ADUM_GPS_PVT). Frame layout, field order and CRC extras
-match lib/main/MAVLink_adum (adum.xml); run this file to print reference frames, test/test_mavlink_gen.sh
+match lib/main/MAVLink_adum (adum.xml); run this file to print reference frames, test/tools/check_mavlink_gen.sh
 compares them with the C headers.
 """
 import struct
@@ -12,19 +12,25 @@ STX_V2 = 0xFD
 INCOMPAT_SIGNED = 0x01
 
 MSG_HEARTBEAT = 0
+MSG_SYS_STATUS = 1
+MSG_STATUSTEXT = 253
 MSG_ADUM_GPS_PVT = 13000
 MSG_ADUM_MAGNETOMETER = 13001
 MSG_ADUM_AUX_CHANNELS = 13002
 
 # msgid -> CRC_EXTRA (adum.xml / generated headers)
-CRC_EXTRA = {MSG_HEARTBEAT: 50, MSG_ADUM_GPS_PVT: 116, MSG_ADUM_MAGNETOMETER: 12, MSG_ADUM_AUX_CHANNELS: 190}
+CRC_EXTRA = {MSG_HEARTBEAT: 50, MSG_SYS_STATUS: 124, MSG_STATUSTEXT: 83, MSG_ADUM_GPS_PVT: 116, MSG_ADUM_MAGNETOMETER: 12, MSG_ADUM_AUX_CHANNELS: 190}
 # msgid -> full payload length
-PAYLOAD_LEN = {MSG_HEARTBEAT: 9, MSG_ADUM_GPS_PVT: 57, MSG_ADUM_MAGNETOMETER: 11, MSG_ADUM_AUX_CHANNELS: 23}
+PAYLOAD_LEN = {MSG_HEARTBEAT: 9, MSG_SYS_STATUS: 43, MSG_STATUSTEXT: 54, MSG_ADUM_GPS_PVT: 57, MSG_ADUM_MAGNETOMETER: 11, MSG_ADUM_AUX_CHANNELS: 23}
 
 MAV_MODE_FLAG_SAFETY_ARMED = 0x80
 MAV_TYPE_GENERIC = 0
 MAV_AUTOPILOT_GENERIC = 0
+MAV_STATE_STANDBY = 3
 MAV_STATE_ACTIVE = 4
+MAV_STATE_CRITICAL = 5
+MAV_SEVERITY_CRITICAL = 2
+MAV_SEVERITY_WARNING = 4
 
 ADUM_ARMING_STATUS_DISARMED = 0
 ADUM_ARMING_STATUS_ARMED = 1
@@ -68,12 +74,30 @@ class MavlinkGenerator:
         payload = struct.pack("<IBBBBB", 0, MAV_TYPE_GENERIC, MAV_AUTOPILOT_GENERIC, base_mode, MAV_STATE_ACTIVE, 3)
         return self._frame(MSG_HEARTBEAT, payload)
 
-    def aux_channels(self, armed, motors, servos):
-        """ADUM_AUX_CHANNELS: motors up to 3 and servos up to 8 pulse widths in us (None = no value)."""
+    def skip_seq(self, count=1):
+        """Leave a gap of `count` sequence numbers: the frames they would have carried are 'lost' on the wire."""
+        self.seq = (self.seq + count) & 0xFF
+
+    def statustext(self, severity, text, ident=0, chunk_seq=0):
+        """STATUSTEXT as the board sends it (used to check the decoder against the C headers)."""
+        payload = struct.pack("<B50sHB", severity, text.encode()[:50], ident, chunk_seq)
+        return self._frame(MSG_STATUSTEXT, payload)
+
+    def sys_status(self, drop_rate_comm=0, errors_comm=0, errors_count1=0, errors_count2=0):
+        payload = struct.pack("<3IHHhHHHHHHb3I", 0, 0, 0, 0, 0, 0, drop_rate_comm, errors_comm, errors_count1,
+                              errors_count2, 0, 0, 0, 0, 0, 0)
+        return self._frame(MSG_SYS_STATUS, payload)
+
+    def aux_channels(self, armed, motors, servos, arming_raw=None):
+        """ADUM_AUX_CHANNELS: motors up to 3 and servos up to 8 pulse widths in us (None = no value).
+
+        arming_raw overrides the arming_status byte (any 0-255 value) when given."""
         def pad(values, count):
             values = [PULSE_IGNORE if v is None else int(v) for v in values]
             return values + [PULSE_IGNORE] * (count - len(values))
         status = ADUM_ARMING_STATUS_ARMED if armed else ADUM_ARMING_STATUS_DISARMED
+        if arming_raw is not None:
+            status = arming_raw
         # wire order: motor[3], servo[8], arming_status
         payload = struct.pack("<3H8HB", *pad(motors, 3), *pad(servos, 8), status)
         return self._frame(MSG_ADUM_AUX_CHANNELS, payload)
@@ -112,7 +136,21 @@ class FrameParser:
 
 def decode_heartbeat(payload):
     custom_mode, mav_type, autopilot, base_mode, status, version = struct.unpack("<IBBBBB", payload)
-    return {"armed": bool(base_mode & MAV_MODE_FLAG_SAFETY_ARMED), "base_mode": base_mode, "status": status}
+    return {"armed": bool(base_mode & MAV_MODE_FLAG_SAFETY_ARMED), "base_mode": base_mode, "status": status,
+            "system_status": status}
+
+
+def decode_statustext(payload):
+    severity, text, ident, chunk_seq = struct.unpack("<B50sHB", payload)
+    return {"severity": severity, "text": text.split(b"\0", 1)[0].decode(errors="replace"), "id": ident,
+            "chunk_seq": chunk_seq}
+
+
+def decode_sys_status(payload):
+    names = ("sensors_present", "sensors_enabled", "sensors_health", "load", "voltage_battery", "current_battery",
+             "drop_rate_comm", "errors_comm", "errors_count1", "errors_count2", "errors_count3", "errors_count4",
+             "battery_remaining", "sensors_present_ext", "sensors_enabled_ext", "sensors_health_ext")
+    return dict(zip(names, struct.unpack("<3IHHhHHHHHHb3I", payload)))
 
 
 def decode_gps_pvt(payload):
