@@ -10,3 +10,4 @@ ADUM fork of Betaflight 4.3: SATELLITEBOARD (STM32F103) MAVLink servo/motor driv
 - Firmware build: `docker run --rm --entrypoint make -v "$PWD":/src -w /src inav-build TARGET=SATELLITEBOARD GCC_REQUIRED_VERSION=10.3.1 -j"$(nproc)"`.
 - Known SITL startup race (TODO K): ~1 in 3-4 starts crash or lose a listener; the harness restarts. Do not patch `serial_tcp.c` without owner approval.
 - Subagent split that worked: firmware agent owns `src/main` except `target/SITL`; test agent owns `test/` and `src/main/target/SITL/target.c`.
+- Code style (owner rule): write code for humans: clear, readable, maintainable; no consolidated machine-optimised one-liners. Brief description per function and on important lines; minimum wording, no large comment blocks, no comments on self-explanatory code.
