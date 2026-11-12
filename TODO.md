@@ -17,6 +17,12 @@ Open design decisions and risks found on 2026-11-11 while planning the SITL test
 | J | IWDG keeps running after CLI `bl` (reboot to the ST system bootloader). | Bootloader resets after ~250 ms: serial bootloader flashing impossible; SWD unaffected. | Block `bl`, or do not start the IWDG / check a bootloader-request flag before the IWDG start. | open: ask owner |
 | K | SITL startup race: dyad is not thread-safe; the main thread registers listeners while the tcp thread runs `dyad_update`. | About 1 in 3-4 SITL starts crash (SIGSEGV) or lose a listener; the test harness detects it and restarts. | Mutex in `src/main/drivers/serial_tcp.c` (SITL-only upstream code). | open: ask owner |
 | L | P5 (config save pending) and UART re-init after 2 s silence are not testable on SITL. | No automated coverage. | Bench tests. | open: bench |
+| M | Stale or forged ARMED frame (replay, buffering radio) arms the board: arm edge with checks passing, or first frame of a session without checks. INAV SITL test 09 (finding F2). | 30-86 ms motor pulse while the master is disarmed; ~500 ms if nothing follows. | Frame authentication / freshness (relates to I). | open: ask owner |
+| N | After a stall, frames left in the UART RX buffer (128 B) are applied; failsafe timeout and re-arm on 1-5 s old ARMED frames in the same cycle. INAV SITL test 16 (F3). | Stale commands applied; IWDG covers stalls > ~250 ms on hardware, shorter stalls not. | Flush RX / discard frames older than the gap on recovery. | open: ask owner |
+| O | Re-arm after FAILSAFE or reboot steps motors from min_command to the commanded throttle in one frame. INAV SITL tests 06/07/10/11 (F4). | ~500 us throttle step (by design, B). | Ramp on the board or master; keep. | open: ask owner |
+| P | Delays < T_fs and buffered bursts are applied as current; no latency/age detection. INAV SITL test 08 (F5). | Up to ~500 ms old commands applied silently. | Timestamp/age field in the dialect. | open: ask owner |
+| Q | `errors_count2` (clamped) counts every no-value motor with < 3 motors and every master min_command < 1000. INAV SITL test 04 (F9). | Counter useless as error indicator. | Do not count no-value; or document. | open, low priority |
+| R | One replayed frame with an old sequence number counts a gap of up to 255 -> drop_rate_comm ~96 %. INAV SITL test 09 (F10). | Misleading link quality. | Ignore backward sequence jumps. | open, low priority |
 
 Decided (2026-11-11, owner):
 - Arming is controlled by `ADUM_AUX_CHANNELS` only; incoming HEARTBEAT does not keep the board armed.

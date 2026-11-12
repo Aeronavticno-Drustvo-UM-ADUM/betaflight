@@ -16,5 +16,6 @@ Level: L1/L2 SITL complete for phase 1 (tests 01-05); firmware implementation of
 - Bench test plan: IWDG reset/brownout while armed, `save` vs IWDG, 200 Hz motor pulse on scope, ESC on failsafe/recovery, UART noise/cable pull/re-init, P5, GPS M10.
 - SITL phase 2: GPS faults, TX buffer saturation, configurator access while armed.
 - SITL phase 3: soak, timer wrap, reboot, EEPROM.
-- Open owner decisions (`TODO.md`): E default serial config, G TX drop counter, I signed frames, J IWDG vs `bl`, K SITL startup race (mutex in `serial_tcp.c`).
-- Committed and pushed through `06f7c2e43`; `run_sitl.sh --servo/--config` committed 2026-11-12.
+- Open owner decisions (`TODO.md`): E default serial config, G TX drop counter, I signed frames, J IWDG vs `bl`, K SITL startup race (mutex in `serial_tcp.c`), M-R from the INAV <-> satellite SITL suite (2026-11-12).
+- INAV <-> satellite SITL suite: INAV repo `src/test/adum/sitl/`, report `docs/adum/satellite_test_report.md` (18 tests, 0 firmware spec failures, findings F1-F10).
+- Pushed through `06f7c2e43`; later commits local (not pushed).
