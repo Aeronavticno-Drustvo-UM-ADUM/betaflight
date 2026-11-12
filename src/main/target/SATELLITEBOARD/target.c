@@ -43,3 +43,16 @@ const timerHardware_t timerHardware[USABLE_TIMER_CHANNEL_COUNT] = {
     // PA7 is left unused: TIM3 CH2 would share the motor timer rate
     DEF_TIM(TIM3, CH2, PA7,  TIM_USE_NONE,  0),
 };
+
+// Pin remaps the PCB needs (the F103 default pins differ). Called from init() after systemInit(), before timers and UARTs.
+void targetPreInit(void)
+{
+    // UART1 on PB6/PB7 instead of PA9/PA10
+    GPIO_PinRemapConfig(GPIO_Remap_USART1, ENABLE);
+
+    // TIM2 CH1/CH2 on PA15/PB3 instead of PA0/PA1 (PA2/PA3 stay UART2, CH3/CH4 are unused)
+    GPIO_PinRemapConfig(GPIO_PartialRemap1_TIM2, ENABLE);
+
+    // The remap calls above switch the debug port off: enable SWD again (JTAG stays off, PA15/PB3 stay usable)
+    GPIO_PinRemapConfig(GPIO_Remap_SWJ_JTAGDisable, ENABLE);
+}

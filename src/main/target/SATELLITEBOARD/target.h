@@ -22,6 +22,9 @@
 
 #define TARGET_BOARD_IDENTIFIER "SATB"
 
+// Pin remaps in target.c targetPreInit()
+#define TARGET_PREINIT
+
 // Servo driver only: no real sensors, config over MSP, MAVLink telemetry
 #define LED0_PIN                PC15
 

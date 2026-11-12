@@ -8,11 +8,13 @@ Status: builds and flashes. Arming, failsafe and safety logic (spec: [`docs/armi
 
 | Function | Pins |
 |---|---|
-| Servos 1-5 | PA15, PB3 (TIM2), PA8, PA9, PA10 (TIM1) |
+| Servos 1-5 | PA15, PB3 (TIM2, partial remap 1), PA8, PA9, PA10 (TIM1) |
 | Motors 1-3 | PA6, PB0, PB1 (TIM3). PA7 is left unused so the motor timer is not shared |
-| UART1 / UART2 / UART3 | PB7 RX, PB6 TX / PA3 RX, PA2 TX / PB11 RX, PB10 TX |
+| UART1 / UART2 / UART3 | PB7 RX, PB6 TX (link to the master, remapped) / PA3 RX, PA2 TX (GPS connector) / PB11 RX, PB10 TX (free) |
 | USB virtual COM port | for the configurator |
 | LED | PC15 |
+
+Pin remaps (UART1, TIM2) are set in `targetPreInit()` in `target.c`, which also switches SWD back on. Config for the real board: `test/servo_config_board.txt` (MAVLink on UART1, GPS on UART2); `test/servo_config.txt` is the SITL variant (MAVLink on UART2). Motors are the TIM3 pins with DMA (PA6, PB0, PB1) for later DShot.
 
 ## How it works
 

@@ -34,6 +34,9 @@ Decided (2026-11-11, owner):
 - FAILSAFE never times out into DISARMED.
 
 
+## S. Pin remaps (found on the bench 2026-11-12)
+The PCB needs UART1 on PB6/PB7 and TIM2 CH1/CH2 on PA15/PB3; neither remap was set (no MAVLink, servos 1-2 dead). Fixed in `targetPreInit()` (`target.c`): USART1 remap, TIM2 partial remap 1, then SWD re-enabled (the SPL remap call switches debug off). Verified on the board 2026-11-12 (MAVLink on UART1, servo outputs S4-S8 on the scope; the earlier "no pulses" was a PCB power problem). I2C1 (PB8/PB9, magnetometer) still needs its remap when a driver exists. PA7 (TIM3 CH2) is unused: it shares the motor timer rate.
+
 # User added notes:
 
 Armin / Disarming:

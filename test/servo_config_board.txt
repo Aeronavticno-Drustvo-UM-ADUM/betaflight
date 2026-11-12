@@ -1,0 +1,40 @@
+# Betaflight CLI configuration for the real SATELLITEBOARD PCB (servo_config.txt is the SITL variant).
+# Differences: MAVLink on UART1 (PB6/PB7, link to the master FC), GPS on UART2 (PA2/PA3, GPS connector).
+# Betaflight CLI configuration for the SATELLITEBOARD servo driver.
+#
+# Paste it into the configurator CLI tab (it ends with "save"), or let
+# test/run_tests.py apply it to the SITL build. Lines starting with # are ignored.
+#
+# MAVLink 2.0, ADUM dialect. The master sends ADUM_AUX_CHANNELS: arming status, servos 1-8 and motors 1-3.
+# Outputs on this board: servos 1-5, motors 1-3 (servos 6-8 of the message are ignored).
+# The board answers with a 1 Hz HEARTBEAT and ADUM_GPS_PVT for every GPS solution.
+
+# MAVLink on UART1 (serial identifier 0): function 512 = telemetry MAVLink, 115200 baud.
+# Format: serial <id> <function mask> <msp baud> <gps baud> <telemetry baud> <blackbox baud>
+serial 0 512 115200 57600 115200 115200
+
+# UBlox GPS on UART2 (serial identifier 1): function 2 = GPS. gps_auto_config sets the module up
+# (M9/M10 through UBX-CFG-VALSET); the module's baud rate is detected and switched to the gps baud.
+serial 1 2 115200 115200 57600 115200
+feature GPS
+set gps_provider = UBLOX
+set gps_auto_config = ON
+
+# Servos: 50 Hz, the centre pulse is used until the first frame arrives
+set servo_pwm_rate = 50
+set servo_center_pulse = 1500
+set servo_lowpass_hz = 0
+
+# servo <index> <min> <max> <middle> <rate> <forward from channel (-1 = none)>
+servo 0 1000 2000 1500 100 -1
+servo 1 1000 2000 1500 100 -1
+servo 2 1000 2000 1500 100 -1
+servo 3 1000 2000 1500 100 -1
+servo 4 1000 2000 1500 100 -1
+
+# Motors: PWM family protocol (DShot is not available on the F103)
+set motor_pwm_protocol = ONESHOT125
+set min_command = 1000
+set max_throttle = 2000
+
+save
