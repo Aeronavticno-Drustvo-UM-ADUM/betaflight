@@ -59,7 +59,7 @@ Clean: same command with `clean` added (or `rm -rf obj/main/SATELLITEBOARD`).
 SITL runs on the host and is built with the host `gcc`; it needs only `gcc` and `make`, no ARM toolchain and no Docker. The Makefile checks for arm-none-eabi-gcc even for SITL; giving `GCC_VERSION` and `GCC_REQUIRED_VERSION` the same dummy value skips that check. The test scripts do this themselves:
 
 ```bash
-test/tools/run_sitl.sh --build        # stock SITL for the configurator, tcp://127.0.0.1:5761
+test/tools/run_sitl.sh --build        # stock SITL for the configurator, tcp://127.0.0.1:5761 (see "Run SITL")
 python3 test/run_tests.py --build     # servo driver SITL (USE_SERVO_DRIVER) + all SITL tests, about 5 min
 python3 test/run_tests.py 05          # only files matching "05"
 ```
@@ -76,6 +76,35 @@ make TARGET=SITL GCC_VERSION=none GCC_REQUIRED_VERSION=none -j"$(nproc)"
 make TARGET=SITL GCC_VERSION=none GCC_REQUIRED_VERSION=none \
     OBJECT_DIR="$PWD/obj/main_servotest" EXTRA_FLAGS=-DUSE_SERVO_DRIVER -j"$(nproc)"
 ```
+
+#### Run SITL
+
+`test/tools/run_sitl.sh` builds the binary if missing, starts it in the foreground and stops it with Ctrl-C:
+
+```bash
+test/tools/run_sitl.sh                      # stock SITL, config in test/sitl-run/eeprom.bin
+test/tools/run_sitl.sh --servo --config     # servo driver SITL; first run: apply test/servo_config.txt
+test/tools/run_sitl.sh --servo              # later runs: the config stays in test/sitl-run-servo/eeprom.bin
+# --build rebuilds first, --reset deletes eeprom.bin first, --verbose keeps the [FLASH_*] lines, --help
+```
+
+| tcp port | UART | use (servo driver with `servo_config.txt`) |
+|---|---|---|
+| 5761 | UART1 | CLI / MSP: configurator "Manual Selection" `tcp://127.0.0.1:5761`, or `nc 127.0.0.1 5761`, then `#` |
+| 5762 | UART2 | MAVLink (ADUM dialect) in and out |
+| 5763 | UART3 | UBlox GPS input |
+
+The servo driver SITL prints every output change as `[servo]<index>=<us>` and `[motor]<index>=<us>` on stdout. In SITL, `save` in the CLI exits the process (no reboot); start it again. Without `--config` and without a saved config, UART2 is not MAVLink and the outputs never move.
+
+Drive it with MAVLink: `send_aux_channels.py` opens only serial devices, so bridge a pseudo-terminal to tcp 5762 with `socat` (second terminal):
+
+```bash
+socat pty,link=/tmp/sitl-mavlink,raw,echo=0 tcp:127.0.0.1:5762 &
+python3 test/tools/send_aux_channels.py /tmp/sitl-mavlink              # servo sweep, disarmed
+python3 test/tools/send_aux_channels.py /tmp/sitl-mavlink --arm --motors 1200,1300,1400
+```
+
+The script prints the board's HEARTBEAT (arm state) once per second. Stopping it for more than 500 ms puts an armed board into failsafe (motors to `min_command`).
 
 Do not build SITL in the Docker image and run it on the host: such a binary aborted with `malloc(): unaligned fastbin chunk detected` on a Fedora 43 host (it passes when also run inside the container).
 

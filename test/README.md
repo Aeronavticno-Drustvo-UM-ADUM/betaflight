@@ -15,7 +15,7 @@ test/
   test_03_frame_integrity.py    damaged, unusual and foreign frames
   test_04_gps_pvt.py            UBX NAV-PVT -> ADUM_GPS_PVT
   test_05_arming_safety.py      arming/safety rules of docs/arming_safety.md: states, arm edge, own-health checks, config lock, reporting
-  tools/run_sitl.sh             stock SITL for the configurator (tcp://127.0.0.1:5761)
+  tools/run_sitl.sh             stock or servo driver (--servo [--config]) SITL to run by hand (tcp://127.0.0.1:5761)
   tools/send_aux_channels.py    sends ADUM_AUX_CHANNELS to a real board over serial
   tools/check_mavlink_gen.sh    compares mavlink_gen.py byte for byte with the firmware headers (tools/mavlink_ref.c)
 ```

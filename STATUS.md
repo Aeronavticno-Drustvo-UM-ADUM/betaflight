@@ -17,4 +17,4 @@ Level: L1/L2 SITL complete for phase 1 (tests 01-05); firmware implementation of
 - SITL phase 2: GPS faults, TX buffer saturation, configurator access while armed.
 - SITL phase 3: soak, timer wrap, reboot, EEPROM.
 - Open owner decisions (`TODO.md`): E default serial config, G TX drop counter, I signed frames, J IWDG vs `bl`, K SITL startup race (mutex in `serial_tcp.c`).
-- Uncommitted: all changes in the working tree; nothing committed yet.
+- Committed and pushed through `06f7c2e43`; `run_sitl.sh --servo/--config` committed 2026-11-12.
