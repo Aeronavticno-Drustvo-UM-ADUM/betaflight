@@ -27,7 +27,7 @@ REASON_LINK = 0
 NOT_READY_PREFIX = "NOT READY:"
 ACCEPTED_NOT_READY_TEXTS = ("NOT READY: LINK", "NOT READY: BOOT_GRACE")
 
-BOOT_WAIT_S = 0.5               # board start-up after the SWD reset
+BOOT_WAIT_S = 2.0               # board start-up after the SWD reset: UART1 receives only ~1.0-1.5 s after it
 SILENT_OBSERVE_S = 4.0          # phase 1 observation time
 STANDBY_MAX_S = 1.5             # disarmed frames -> STANDBY
 NO_TEXT_OBSERVE_S = 3.0         # observation after STANDBY, no NOT READY text allowed

@@ -57,7 +57,7 @@ def phase_servos(results, streamer):
         if first_mapping is None:
             first_mapping = mapping
             print("    servo index -> pin: %s" % {index + 1: pin for index, pin in mapping.items()})
-        else:
+        elif len(set(commanded_us)) == len(commanded_us):     # repeated values make the mapping ambiguous
             results.check("servos '%s': same index -> pin mapping" % pattern_name, mapping == first_mapping,
                           "mapping %s" % {index + 1: pin for index, pin in mapping.items()})
     streamer.servos[:hw.SERVO_COUNT] = [1500] * hw.SERVO_COUNT
