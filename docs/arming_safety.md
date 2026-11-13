@@ -46,7 +46,7 @@ Evaluated continuously. The result goes into the HEARTBEAT while `DISARMED` (sec
 
 | # | Check | Reason code |
 |---|---|---|
-| P1 | Link healthy: link session active, at least 5 consecutive valid AUX frames, no CRC error in the last 1 s. A frame with a message id unknown to the dialect is ignored, not a CRC error. | `LINK` |
+| P1 | Link healthy: link session active, at least 5 consecutive valid AUX frames, no CRC error in the last 1 s. A frame with a message id unknown to the dialect is counted in `errors_comm`, but not a link error for readiness. | `LINK` |
 | P2 | Init done: time since boot >= `T_boot` (2 s, ESC initialisation) | `BOOT_GRACE` |
 | P3 | Motor output usable: `motor_pwm_protocol` != DISABLED, motors enabled | `MOTOR_CONFIG` |
 | P4 | No configurator session: CLI not active, no MSP write or motor test in the last 2 s | `CONFIG_ACTIVE` |
@@ -108,7 +108,7 @@ Until the ADUM dialect has dedicated messages, standard common messages are used
 ## 10. Implementation notes (what the sections above do not state)
 - STATUSTEXT strings: `NOT READY: LINK` / `BOOT_GRACE` / `MOTOR_CONFIG` / `CONFIG_ACTIVE`; `FAILSAFE: link lost`; `FAILSAFE: link restored`; `LINK: low frame rate`.
 - Readiness precedence when several checks fail: P1 > P2 > P3 > P4/P5.
-- Unknown message id: the MAVLink parser fails the CRC of such a frame (no `crc_extra`). `servo_driver.c` checks `mavlink_get_msg_entry()` for the id of the failed frame and does not count it. A corrupted id that becomes unknown is not counted either (accepted).
+- Unknown message id: the MAVLink parser fails the CRC of such a frame (no `crc_extra`). `servo_driver.c` checks `mavlink_get_msg_entry()` for the id of the failed frame and counts it in `errors_comm` but not as a link error for readiness. A corrupted id that becomes unknown is treated the same (accepted).
 - Diagnostics (`servoDriverDiag`, SWD): `armEdges` counts arm edges within a session, `edgesNotReady` those that came while not ready (armed anyway), `lastNotReadyReason` its reason; `notReadyTextsSent` / `notReadyTextsDropped`.
 - `FAILSAFE: link restored` is sent on any exit from FAILSAFE (armed or disarmed frame).
 - `LINK: low frame rate` (WARNING): fewer than 20 AUX frames in a full 1 s window, at most every 10 s.
@@ -140,7 +140,7 @@ In flight: satellite reset or link loss -> satellite HEARTBEAT `UNINIT` or missi
 Goal: no message-id or dialect fault can make an armed satellite with a good link reject frames, disarm, or fail to re-arm in flight.
 
 1. **Link liveness = valid `ADUM_AUX_CHANNELS` only.** No other message, known or unknown, refreshes or breaks the link timer.
-2. **Everything else is ignored.** Known messages other than AUX, unknown ids, HEARTBEAT: no state change, not a link error. An unknown id only fails the CRC because the parser has no `crc_extra` for it; it is not counted (section 10).
+2. **Everything else is ignored.** Known messages other than AUX, unknown ids, HEARTBEAT: no state change, not a link error. An unknown id only fails the CRC because the parser has no `crc_extra` for it; it is counted in `errors_comm`, but not a link error for readiness (section 10).
 3. **No filters that can reject the master.** AUX is accepted from any sysid/compid, MAVLink 2 signature not checked (TODO I stays as is), sequence gaps only counted. No such filter is to be added.
 4. **Dialect evolution: never change an existing message.** Fields of `ADUM_AUX_CHANNELS` (id 13002) are frozen: a change alters `crc_extra`, so every AUX frame of the other side fails the CRC. New fields only as MAVLink 2 `<extensions>` (do not change `crc_extra`); new functions only as new message ids (the old side ignores them, rule 2).
 5. **One dialect source.** `adum.xml` is identical in both repos (`lib/main/MAVLink_adum/adum.xml` here, `lib/main/MAVLink/adum.xml` in INAV). Both sides regenerate from it; `test/tools/check_mavlink_gen.sh` checks the frames byte for byte.

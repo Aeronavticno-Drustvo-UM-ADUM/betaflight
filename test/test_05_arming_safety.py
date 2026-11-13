@@ -8,7 +8,7 @@ Scenarios:
  2. FAILSAFE never times out: 60 s without frames, then an armed frame recovers
  3. Arm-edge rule: first frame after boot says ARMED (inside the boot grace) -> arms at once
  4. Arm-edge rule: first frame after a gap > timeout says ARMED -> arms at once, no checks (even with a recent CRC error)
- 5. P1 LINK: < 5 valid frames, CRC error in the last 1 s; a frame with an unknown message id is not a CRC error
+ 5. P1 LINK: < 5 valid frames, CRC error in the last 1 s; a frame with an unknown message id is not a link error (but counted in errors_comm)
  6. P2 BOOT_GRACE: inside sd_boot_grace_ms after boot
  7. P3 MOTOR_CONFIG: motor_pwm_protocol = DISABLED
  8. P4 CONFIG_ACTIVE: CLI session open, MSP write in the last 2 s (P5 save pending: not testable on SITL)
@@ -400,7 +400,7 @@ def wait_new_heartbeat(fx, timeout=2.0):
 
 
 def s5_p1_link_not_ready(fx):
-    """P1 LINK: < 5 valid frames, CRC error in the last 1 s; unknown message id is not a CRC error"""
+    """P1 LINK: < 5 valid frames, CRC error in the last 1 s; unknown message id is not a link error (counted in errors_comm)"""
     wait_boot(fx)
     disarmed(fx, 0.3)
     time.sleep(T_FS + 0.3)                       # gap: new link session on the next frame
@@ -422,9 +422,10 @@ def s5_p1_link_not_ready(fx):
     check_not_ready(fx, "LINK", "P1 (CRC errors, last 0.1-0.2 s before the edge)", keep=crc_error_and_frames)
     check_ready_again(fx, "P1 after the CRC window", settle=1.2)
 
-    # valid frame with an unknown message id: ignored, not a CRC error
+    # valid frame with an unknown message id: counted in errors_comm, not a link error
     sys.modules[type(fx.link.gen).__module__].CRC_EXTRA.setdefault(UNKNOWN_MSGID, 77)   # frame is well-formed, id unknown to the firmware
     unknown = fx.link.gen._frame(UNKNOWN_MSGID, bytes(range(1, 9)))
+    base = fx.link.sys_after(time.monotonic(), 1.5, keep_fn(fx, False))
     t = time.monotonic()
     for _ in range(30):
         fx.link.send(unknown)
@@ -434,6 +435,13 @@ def s5_p1_link_not_ready(fx):
     texts = fx.link.texts_since(t, "NOT READY")
     check("P1: unknown message id sent 30x: HEARTBEAT stays STANDBY", status == STANDBY, "status %s" % status)
     check("P1: unknown message id: no NOT READY text", not texts, str([x[2] for x in texts]))
+    after = fx.link.sys_after(time.monotonic(), 1.5, keep_fn(fx, False))
+    if base and after:
+        check("P1: unknown message id sent 30x: errors_comm +30 (counted, diagnostic)",
+              after[1]["errors_comm"] - base[1]["errors_comm"] == 30,
+              "%d -> %d" % (base[1]["errors_comm"], after[1]["errors_comm"]))
+    else:
+        check("P1: unknown message id: SYS_STATUS received", False, "base %s after %s" % (base, after))
     frames(fx, 0.3, False)
 
 

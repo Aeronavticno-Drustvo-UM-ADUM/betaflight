@@ -684,12 +684,14 @@ void servoDriverUpdate(timeUs_t currentTimeUs)
             const uint16_t frameErrors = rxStatus.packet_rx_drop_count;
             const uint16_t crcErrors = channelStatus->parse_error;
             channelStatus->parse_error = 0;
-            // a message id unknown to the dialect always fails the CRC (no crc_extra): ignored, not a link error
+            // a message id unknown to the dialect always fails the CRC (no crc_extra): counted in errorsComm, but not a link error
             const bool unknownMessage = crcErrors
                 && mavlink_get_msg_entry(mavlink_get_channel_buffer(MAVLINK_CHANNEL)->msgid) == NULL;
-            const uint16_t errors = frameErrors + (unknownMessage ? 0 : crcErrors);
-            if (errors) {
-                errorsComm += errors;
+            const uint16_t countedErrors = frameErrors + crcErrors;
+            const uint16_t linkErrors = frameErrors + (unknownMessage ? 0 : crcErrors);
+            errorsComm += countedErrors;
+            if (linkErrors) {
+                // only real errors break the link readiness
                 haveCrcError = true;
                 lastCrcErrorUs = currentTimeUs;
                 validFrames = 0;
