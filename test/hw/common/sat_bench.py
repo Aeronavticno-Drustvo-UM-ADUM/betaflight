@@ -126,7 +126,7 @@ def preflight():
     if not os.path.exists(FTDI_PORT):
         problems.append("FTDI port missing: " + FTDI_PORT)
     if not stlink_present():
-        problems.append("ST-Link not found on USB (%s)" % STLINK_USB_ID)
+        problems.append("ST-Link not found on USB (ids %s)" % ", ".join(STLINK_USB_IDS))
     if not os.path.exists(ELF_PATH):
         problems.append("firmware ELF missing: " + ELF_PATH)
     if problems:
