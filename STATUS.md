@@ -1,6 +1,6 @@
 # Status
 
-Level: L1/L2 SITL complete for phase 1 (tests 01-05); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench started 2026-11-12 (L3 in progress): board flashed and talking MAVLink, servo outputs verified on the scope. No automated hardware tests yet.
+Level: L1/L2 SITL complete for phase 1 (tests 01-05); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench started 2026-11-12 (L3 in progress): board flashed and talking MAVLink; first automated HW output check `test/tools/hw_output_check.py` (SWD timer-register reads): servos and disarmed motors PASS, **arm edge fails on hardware (TODO T)**. Report: `docs/hw_bench_report.md`.
 
 ## Last results (2026-11-11)
 | Item | Result |
@@ -22,7 +22,14 @@ Setup, details also in the INAV repo memory/STATUS:
 - Not verified yet: motors S1/S3/S9 (PA6/PB0/PB1, TIM3, OneShot125; PA7 unused), arming/failsafe on hardware, GPS on UART2, IWDG, `save` vs watchdog, UART re-init.
 - Tools: `test/tools/send_aux_channels.py --port <by-id D>` (sine on servos, disarmed; `--arm --motors` only with props off). ST-Link + `openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "mdw <addr> <n>" -c shutdown` reads timer CCR, GPIO and AFIO registers of the running board (use `-c`, a `-f` script printed nothing).
 
+## HW output check (2026-11-12, details `docs/hw_bench_report.md`)
+- `test/tools/hw_output_check.py --port <by-id D> [--armed --props-off]`: needs ST-Link + UART1 TTL (no USB to the board, no CLI/MSP open). Servos 1-5 exact, mapping 1 PA15, 2 PB3, 3 PA8, 4 PA9, 5 PA10; motors disarmed at 125 us (PA6, PB0, PB1).
+- **Open bug (TODO T):** after disarmed frames, ARMED frames do not arm the board (0-15 s, no STATUSTEXT). Armed motor and failsafe steps (3, 4) therefore not run. Root cause not known; SITL not yet compared.
+- Script not committed (untracked).
+
 ## Next steps
+- **First: root cause of TODO T** on hardware (breakpoint/watchpoint on `state`, `prevFrameArmed` in `servoDriverHandleAux`; flash-vs-source check; try SITL with the same frame sequence). Owner decides the fix.
+- Then run `hw_output_check.py --armed --props-off` (steps 3, 4), add CCER/GPIO reads (TODO U), commit the script.
 - Hardware test backend for `test/common/harness.py` (`--hw`, serial MAVLink + VCP CLI), one sub-task per piece: transport, then log-free checks (HEARTBEAT, SYS_STATUS, STATUSTEXT, arming, failsafe timing), then an OpenOCD helper that reads CCR registers as output check. Scope only for timing (50 Hz, 200 Hz motor, failsafe edges). Motors armed only with props off.
 - Bench test plan: IWDG reset/brownout while armed, `save` vs IWDG, 200 Hz motor pulse on scope, ESC on failsafe/recovery, UART noise/cable pull/re-init, P5, GPS M10.
 - SITL phase 2: GPS faults, TX buffer saturation, configurator access while armed.

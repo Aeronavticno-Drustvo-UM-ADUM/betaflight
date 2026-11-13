@@ -23,6 +23,9 @@ Open design decisions and risks found on 2026-11-11 while planning the SITL test
 | P | Delays < T_fs and buffered bursts are applied as current; no latency/age detection. INAV SITL test 08 (F5). | Up to ~500 ms old commands applied silently. | Timestamp/age field in the dialect. | open: ask owner |
 | Q | `errors_count2` (clamped) counts every no-value motor with < 3 motors and every master min_command < 1000. INAV SITL test 04 (F9). | Counter useless as error indicator. | Do not count no-value; or document. | open, low priority |
 | R | One replayed frame with an old sequence number counts a gap of up to 255 -> drop_rate_comm ~96 %. INAV SITL test 09 (F10). | Misleading link quality. | Ignore backward sequence jumps. | open, low priority |
+| T | **Hardware: arm edge not honoured**, no STATUSTEXT, delay 0-15 s, intermittent (bench report finding H1). | Master cannot arm the motors in the normal sequence; only the unchecked first-frame-of-session path arms. | Root cause first (trace `state`, `prevFrameArmed`, edge branch on the board; compare SITL). Then fix and add a SITL regression test if reproducible there. | open: root cause needed, ask owner before the fix |
+| U | HW check covers timer registers only (CCER, GPIO mode, PCB not checked). | A dead pin with correct CCR passes. | Add CCER and GPIO CRL/CRH reads to `hw_output_check.py`; stage 2: logic analyzer on the pins. | open: next |
+| V | HW tests not run yet: armed motor widths, disarm, failsafe on link loss, 200 Hz motor / 50 Hz servo timing, IWDG, `save` vs IWDG, UART re-init, GPS, fault injection. | Hardware behaviour of C, L, A, B, H unverified. | Run after T is fixed (armed steps are in `hw_output_check.py`); fault injection through the proxy idea in INAV STATUS. | open |
 
 Decided (2026-11-11, owner):
 - Arming is controlled by `ADUM_AUX_CHANNELS` only; incoming HEARTBEAT does not keep the board armed.
