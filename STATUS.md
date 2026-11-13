@@ -14,8 +14,8 @@ Firmware `2fa92b817` on the board. `hw_output_check.py --armed --props-off` 3/3 
 ## Fix EC (2026-11-13)
 Since fix X, CRC failures of unknown-id frames were not counted at all, so `errors_comm` no longer showed garbage/noise (found by INAV SITL tests 13, 17). `34da60a09`: all errors counted in `errors_comm`; only known-id errors are link errors for readiness. SITL test_05 137/0 (new check: 30 unknown-id frames -> `errors_comm` +30, `STANDBY` kept). Flashed on the board (ELF from `34da60a09`), `hw_output_check.py --armed --props-off` PASS (1 run).
 
-## Next session: INAV EVIS_FC <-> board
-INAV EVIS_FC (F405) is flashed with the satellite interface (`adum_sat_uart = 3`). The owner wires EVIS UART3 to the board's UART1 connector (FTDI channel B unplugged from it). Steps and wiring: `../inav/STATUS.md` "Next session". With EVIS on UART1, `hw_output_check.py` (FTDI as fake master) needs the FTDI back on the connector.
+## INAV EVIS_FC <-> board: passed (2026-11-13 night)
+EVIS UART3 wired to the board's UART1 (FTDI channel B unplugged). Link, readiness (`UNINIT`/`BOOT_GRACE` -> `STANDBY`), INAV arm block, arm/disarm and FAILSAFE on an INAV TX wire pull with INAV staying armed: all as specified. Details `docs/hw_bench_report.md` "INAV master on the board", INAV `STATUS.md`. Open: exact failsafe delay on this link (INAV TODO S4-fs), one unexplained EVIS reboot (EVIS-RST). With EVIS on UART1, `hw_output_check.py` (FTDI as fake master) needs the FTDI back on the connector.
 
 ## Last results (2026-11-11)
 | Item | Result |

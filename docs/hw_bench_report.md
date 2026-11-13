@@ -49,3 +49,16 @@ Firmware `2fa92b817` (D8, master is primary), flashed by ST-Link, UART1 on FTDI 
 
 ## EC firmware on the board (2026-11-13 evening)
 ELF from `34da60a09` (D8 + EC: unknown-id frames counted in `errors_comm`, not a link error) flashed by ST-Link, verified. `hw_output_check.py --armed --props-off`: PASS (1 run, 0 failed), incl. FAILSAFE on link loss over SWD.
+
+## INAV master on the board: EVIS_FC link (2026-11-13 night)
+INAV EVIS_FC (F405, `USE_ADUM_SATELLITE`) UART3 -> board UART1 (PB6/PB7), 115200 baud, 100 Hz AUX frames. Board firmware `34da60a09` (D8 + EC). FTDI off the connector; board state over SWD (`read_diag.py`), INAV over its USB VCP (CLI, MSP RC). Props off.
+
+| Check | Result |
+|---|---|
+| Link | INAV sees HEARTBEAT/SYS_STATUS, board `STANDBY`; board: ~100 AUX frames/s, 0 parse errors, 0 TX drops |
+| Board halted over SWD (12 s) | INAV `NO LINK`, arming flag `SATELLITE`; cleared after resume |
+| Board reset over SWD | INAV sees `UNINIT` + `NOT READY: BOOT_GRACE` ~1.6 s, then `STANDBY` (`BOOT_GRACE` observable here, unlike the FTDI check: INAV sends frames from the first moment) |
+| Arm / disarm (MSP RC to INAV) | state 0->1 cause `ARMED_FRAME` (`edgesNotReady` 0), 1->0 cause `DISARM_FRAME` |
+| INAV TX wire pulled ~12 s while armed | 1->2 FAILSAFE cause `LINK_TIMEOUT`; INAV stays armed; wire back: 2->1 `FAILSAFE_RECOVER`, `newSessions` 2; 3 parse errors from the plugging |
+
+Failsafe delay not measured exactly on this link (counters at ~0.4 s sampling: ~0.5-0.7 s). Output pins not read on this link. Unexplained single EVIS_FC reboot during one SWD halt of the board (board not reset); INAV TODO EVIS-RST.
