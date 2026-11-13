@@ -1,6 +1,6 @@
 # Status
 
-Level: L1/L2 SITL complete for phase 1 (tests 01-06); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench started 2026-11-12 (L3 in progress): board flashed and talking MAVLink; first automated HW output check `test/tools/hw_output_check.py` (SWD timer-register reads): servos and disarmed motors PASS, arm edge, armed motors and failsafe PASS (H1 was the WCH adapter). Report: `docs/hw_bench_report.md`.
+Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-11-13); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench started 2026-11-12 (L3 in progress): board flashed and talking MAVLink; first automated HW output check `test/tools/hw_output_check.py` (SWD timer-register reads): servos and disarmed motors PASS, arm edge, armed motors and failsafe PASS (H1 was the WCH adapter). Report: `docs/hw_bench_report.md`.
 
 ## Last results (2026-11-11)
 | Item | Result |
@@ -22,18 +22,17 @@ Setup, details also in the INAV repo memory/STATUS:
 - Not verified yet: motor timing on the scope, GPS on UART2, IWDG, `save` vs IWDG, UART re-init.
 - Tools: `test/tools/send_aux_channels.py --port <FTDI B>` (sine on servos, disarmed; `--arm --motors` only with props off). `test/tools/read_diag.py`: diagnostic counters over SWD (arm state ground truth). ST-Link + `openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "mdw <addr> <n>" -c shutdown` reads registers of the running board.
 
-## HW output check (2026-11-12, details `docs/hw_bench_report.md`)
-- `test/tools/hw_output_check.py --port <by-id D> [--armed --props-off]`: needs ST-Link + UART1 TTL (no USB to the board, no CLI/MSP open). Servos 1-5 exact, mapping 1 PA15, 2 PB3, 3 PA8, 4 PA9, 5 PA10; motors disarmed at 125 us (PA6, PB0, PB1).
+## HW output check (2026-11-12, updated 2026-11-13; details `docs/hw_bench_report.md`)
+- `test/tools/hw_output_check.py --port <FTDI B> [--armed --props-off]`: needs ST-Link + UART1 TTL (no USB to the board, no CLI/MSP open). Servos 1-5 exact, mapping 1 PA15, 2 PB3, 3 PA8, 4 PA9, 5 PA10; motors disarmed at 125 us (PA6, PB0, PB1). Arm/disarm/failsafe also checked over SWD (diag counters).
 - **H1 closed (2026-11-13):** not a firmware bug; the WCH adapter delayed the board's HEARTBEAT. With FTDI: 3/3 PASS incl. armed motors, disarm, failsafe on link loss (steps 3, 4).
-- Script not committed (untracked).
 
 ## Next steps
-- **Done 2026-11-13:** fix W (int32 timestamp windows, `docs/fix_W_timestamps.md`, SITL `test_06_time_wrap.py`, verified on the board); diagnostic counters `USE_SERVO_DRIVER_DIAG` (on for SATELLITEBOARD). K (SITL startup race) not solved by a harness retry: needs owner OK for the `serial_tcp.c` mutex. Next: CCER/GPIO reads (TODO U), remaining bench plan (V), owner decisions (TODO.md, X).
-- Then run `hw_output_check.py --armed --props-off` (steps 3, 4), add CCER/GPIO reads (TODO U), commit the script.
+- **Done 2026-11-13:** fix W (int32 timestamp windows, `docs/fix_W_timestamps.md`, SITL `test_06_time_wrap.py`, verified on the board); diagnostic counters `USE_SERVO_DRIVER_DIAG` (on for SATELLITEBOARD); K (SITL startup race) fixed with a mutex in `serial_tcp.c` (SITL only). Next: CCER/GPIO reads (TODO U), remaining bench plan (V), owner decisions (TODO.md, X).
+- Next (board): CCER/GPIO reads in `hw_output_check.py` (TODO U); remaining bench plan (V) with the owner.
 - Hardware test backend for `test/common/harness.py` (`--hw`, serial MAVLink + VCP CLI), one sub-task per piece: transport, then log-free checks (HEARTBEAT, SYS_STATUS, STATUSTEXT, arming, failsafe timing), then an OpenOCD helper that reads CCR registers as output check. Scope only for timing (50 Hz, 200 Hz motor, failsafe edges). Motors armed only with props off.
 - Bench test plan: IWDG reset/brownout while armed, `save` vs IWDG, 200 Hz motor pulse on scope, ESC on failsafe/recovery, UART noise/cable pull/re-init, P5, GPS M10.
 - SITL phase 2: GPS faults, TX buffer saturation, configurator access while armed.
 - SITL phase 3: soak, timer wrap, reboot, EEPROM.
-- Open owner decisions (`TODO.md`): E default serial config, G TX drop counter, I signed frames, J IWDG vs `bl`, K SITL startup race (mutex in `serial_tcp.c`), M-R from the INAV <-> satellite SITL suite (2026-11-12).
+- Open owner decisions (`TODO.md`): E default serial config, G TX drop counter, I signed frames, J IWDG vs `bl`, M-R and X (arming/link, ARM-C proposal in INAV `docs/adum/arm_link_proposal.md`, on hold).
 - INAV <-> satellite SITL suite: INAV repo `src/test/adum/sitl/`, report `docs/adum/satellite_test_report.md` (18 tests, 0 firmware spec failures, findings F1-F10).
 - Pushed through `06f7c2e43`; later commits local (not pushed).
