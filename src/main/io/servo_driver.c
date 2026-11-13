@@ -35,6 +35,7 @@
 #include "drivers/motor.h"
 #include "drivers/pwm_output.h"
 #include "drivers/serial.h"
+#include "drivers/system.h"
 #include "drivers/time.h"
 
 #include "fc/runtime_config.h"
@@ -141,6 +142,164 @@ static uint16_t winLost;
 static bool haveSeq;
 static uint8_t lastSeq;
 
+#ifdef USE_SERVO_DRIVER_DIAG
+// Diagnostic counters, read over SWD (test/tools/read_diag.py, one "mdw" of the whole struct). Wrap freely.
+// Word layout = field order below: identity 0-2, frames 3-6, arm edges and rejects 7-11, mirrors 12-13, transitions 14-19, timing 20-23.
+// bootCount: F1 has no no-init RAM section (startup clears .bss), so it is always 1 here.
+typedef enum {
+    DIAG_CAUSE_NONE = 0,
+    DIAG_CAUSE_FIRST_FRAME_ARMED,   // first frame of a session says ARMED
+    DIAG_CAUSE_EDGE_PASS,           // observed arm edge passed the checks
+    DIAG_CAUSE_DISARM_FRAME,        // frame says DISARMED while armed
+    DIAG_CAUSE_LINK_TIMEOUT,        // link timeout while armed -> FAILSAFE
+    DIAG_CAUSE_FAILSAFE_RECOVER,    // frame after FAILSAFE
+} servoDriverDiagCause_e;
+
+typedef struct {
+    uint32_t magic;                 // 0x5D1A6001, set at init
+    uint32_t resetCsr;              // RCC->CSR at boot (reset cause)
+    uint32_t bootCount;             // always 1 (see above)
+    uint32_t auxFrames;             // valid ADUM_AUX_CHANNELS frames
+    uint32_t auxArmedFrames;
+    uint32_t auxDisarmedFrames;
+    uint32_t newSessions;
+    uint32_t armEdges;              // observed arm edges that went through the checks
+    uint32_t edgeRejects;
+    uint32_t lastRejectReason;      // rejectReason_e
+    uint32_t rejectTextsSent;
+    uint32_t rejectTextsDropped;    // servoDriverSend failed for the reject text
+    uint32_t txDrops;               // mirror
+    uint32_t parseErrors;           // mirror of errorsComm
+    uint32_t stateChanges;
+    uint32_t lastFromState;         // servoDriverState_e
+    uint32_t lastToState;
+    uint32_t lastCause;             // servoDriverDiagCause_e
+    uint32_t lastAuxFrameNo;        // auxFrames at the last transition
+    uint32_t lastTransitionMs;
+    uint32_t maxRxBytesPerCycle;    // bytes read in one servoDriverUpdate call
+    uint32_t maxCycleGapUs;         // largest gap between two servoDriverUpdate calls
+    uint32_t firstArmedFrameNo;     // auxFrames of the first ARMED frame after a DISARMED one
+    uint32_t armedAtFrameNo;        // auxFrames when the state became ARMED
+} servoDriverDiag_t;
+
+#define SERVO_DRIVER_DIAG_MAGIC 0x5D1A6001
+
+volatile servoDriverDiag_t servoDriverDiag __attribute__((used));   // not static: findable by name in the ELF
+
+static timeUs_t diagLastUpdateUs;
+static bool diagHaveLastUpdate;
+static uint32_t diagRxBytesThisCycle;
+
+// Sets the magic, the reset cause and the boot count
+static void diagInit(void)
+{
+    servoDriverDiag.magic = SERVO_DRIVER_DIAG_MAGIC;
+#ifdef STM32F10X
+    servoDriverDiag.resetCsr = cachedRccCsrValue;
+#endif
+    servoDriverDiag.bootCount = 1;
+}
+
+// Counts one valid AUX frame and detects the first ARMED frame after a DISARMED one
+static void diagNoteAuxFrame(bool armedFrame, bool newSession, bool previousFrameArmed)
+{
+    servoDriverDiag.auxFrames++;
+    if (armedFrame) {
+        servoDriverDiag.auxArmedFrames++;
+    } else {
+        servoDriverDiag.auxDisarmedFrames++;
+    }
+    if (newSession) {
+        servoDriverDiag.newSessions++;
+    }
+    if (armedFrame && !previousFrameArmed) {
+        servoDriverDiag.firstArmedFrameNo = servoDriverDiag.auxFrames;
+    }
+}
+
+// Counts one arm edge that went through the checks, and its result
+static void diagNoteArmEdge(rejectReason_e reason)
+{
+    servoDriverDiag.armEdges++;
+    if (reason != REJECT_NONE) {
+        servoDriverDiag.edgeRejects++;
+        servoDriverDiag.lastRejectReason = reason;
+    }
+}
+
+// Counts a reject text that was sent or dropped
+static void diagNoteRejectText(bool sent)
+{
+    if (sent) {
+        servoDriverDiag.rejectTextsSent++;
+    } else {
+        servoDriverDiag.rejectTextsDropped++;
+    }
+}
+
+// Records the last state transition and its cause
+static void diagNoteTransition(servoDriverState_e from, servoDriverState_e to, servoDriverDiagCause_e cause)
+{
+    servoDriverDiag.stateChanges++;
+    servoDriverDiag.lastFromState = from;
+    servoDriverDiag.lastToState = to;
+    servoDriverDiag.lastCause = cause;
+    servoDriverDiag.lastAuxFrameNo = servoDriverDiag.auxFrames;
+    servoDriverDiag.lastTransitionMs = millis();
+    if (to == SD_ARMED) {
+        servoDriverDiag.armedAtFrameNo = servoDriverDiag.auxFrames;
+    }
+}
+
+// Measures the gap between two update calls
+static void diagNoteCycleStart(timeUs_t currentTimeUs)
+{
+    diagRxBytesThisCycle = 0;
+    if (diagHaveLastUpdate) {
+        const uint32_t gapUs = (uint32_t)cmpTimeUs(currentTimeUs, diagLastUpdateUs);
+        if (gapUs > servoDriverDiag.maxCycleGapUs) {
+            servoDriverDiag.maxCycleGapUs = gapUs;
+        }
+    }
+    diagLastUpdateUs = currentTimeUs;
+    diagHaveLastUpdate = true;
+}
+
+// Counts one received byte
+static void diagNoteRxByte(void)
+{
+    diagRxBytesThisCycle++;
+}
+
+// Closes the cycle: max bytes read, and the mirrors of the SYS_STATUS counters
+static void diagNoteCycleEnd(uint16_t txDropCount, uint16_t parseErrorCount)
+{
+    if (diagRxBytesThisCycle > servoDriverDiag.maxRxBytesPerCycle) {
+        servoDriverDiag.maxRxBytesPerCycle = diagRxBytesThisCycle;
+    }
+    servoDriverDiag.txDrops = txDropCount;
+    servoDriverDiag.parseErrors = parseErrorCount;
+}
+#else
+typedef int servoDriverDiagCause_e;     // cause is ignored without the diagnostics
+enum {
+    DIAG_CAUSE_NONE,
+    DIAG_CAUSE_FIRST_FRAME_ARMED,
+    DIAG_CAUSE_EDGE_PASS,
+    DIAG_CAUSE_DISARM_FRAME,
+    DIAG_CAUSE_LINK_TIMEOUT,
+    DIAG_CAUSE_FAILSAFE_RECOVER,
+};
+#define diagInit()
+#define diagNoteAuxFrame(armedFrame, newSession, previousFrameArmed)
+#define diagNoteArmEdge(reason)
+#define diagNoteRejectText(sent)
+#define diagNoteTransition(from, to, cause)
+#define diagNoteCycleStart(currentTimeUs)
+#define diagNoteRxByte()
+#define diagNoteCycleEnd(txDropCount, parseErrorCount)
+#endif
+
 static bool pulseValid(uint16_t pulseUs)
 {
     return pulseUs != SERVO_DRIVER_PULSE_INVALID && pulseUs != UINT16_MAX;
@@ -166,30 +325,33 @@ static void servoDriverWriteServo(int index, uint16_t pulseUs)
     pwmWriteServo(index, limited);
 }
 
-// Sends a frame if the port has room for all of it (never blocks, never sends half a frame)
-static void servoDriverSend(const mavlink_message_t *msg)
+// Sends a frame if the port has room for all of it (never blocks, never sends half a frame). Returns false if dropped.
+static bool servoDriverSend(const mavlink_message_t *msg)
 {
     uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
     const uint16_t length = mavlink_msg_to_send_buffer(buffer, msg);
     if (!mavlinkPort || serialTxBytesFree(mavlinkPort) < length) {
         txDrops++;
-        return;
+        return false;
     }
     serialWriteBuf(mavlinkPort, buffer, length);
+    return true;
 }
 
-static void servoDriverSendStatusText(uint8_t severity, const char *text)
+static bool servoDriverSendStatusText(uint8_t severity, const char *text)
 {
     mavlink_message_t msg;
     mavlink_msg_statustext_pack(SERVO_DRIVER_MAVLINK_SYSID, SERVO_DRIVER_MAVLINK_COMPID, &msg, severity, text, 0, 0);
-    servoDriverSend(&msg);
+    return servoDriverSend(&msg);
 }
 
-static void servoDriverSetState(servoDriverState_e newState)
+// Changes the state; the cause is only recorded by the diagnostics
+static void servoDriverSetState(servoDriverState_e newState, servoDriverDiagCause_e cause)
 {
     if (newState == state) {
         return;
     }
+    diagNoteTransition(state, newState, cause);
     state = newState;
     for (int i = 0; i < SERVO_DRIVER_MOTOR_COUNT; i++) {
         motorPulse[i] = motorConfig()->mincommand;
@@ -319,6 +481,7 @@ static void servoDriverHandleAux(const mavlink_message_t *msg, timeUs_t currentT
         sessionAtLastTick = false;
         validFrames = 0;
     }
+    diagNoteAuxFrame(armedFrame, newSession, prevFrameArmed);
     if (validFrames < UINT8_MAX) {
         validFrames++;
     }
@@ -334,28 +497,30 @@ static void servoDriverHandleAux(const mavlink_message_t *msg, timeUs_t currentT
         if (armedFrame) {
             if (newSession) {
                 // First frame of a link session says ARMED (reboot or link recovered while the master was armed): the master is primary, no checks
-                servoDriverSetState(SD_ARMED);
+                servoDriverSetState(SD_ARMED, DIAG_CAUSE_FIRST_FRAME_ARMED);
             } else if (!prevFrameArmed) {
                 // Observed arm edge: own-health checks. On reject the board stays disarmed until the next edge.
                 const rejectReason_e reason = servoDriverCheckArmEdge();
+                diagNoteArmEdge(reason);
                 if (reason == REJECT_NONE) {
-                    servoDriverSetState(SD_ARMED);
+                    servoDriverSetState(SD_ARMED, DIAG_CAUSE_EDGE_PASS);
                 } else if (!haveRejectText) {
                     haveRejectText = true;
                     lastRejectTextUs = currentTimeUs;
-                    servoDriverSendStatusText(MAV_SEVERITY_WARNING, rejectText[reason]);
+                    const bool textSent = servoDriverSendStatusText(MAV_SEVERITY_WARNING, rejectText[reason]);
+                    diagNoteRejectText(textSent);
                 }
             }
         }
         break;
     case SD_ARMED:
         if (!armedFrame) {
-            servoDriverSetState(SD_DISARMED);
+            servoDriverSetState(SD_DISARMED, DIAG_CAUSE_DISARM_FRAME);
         }
         break;
     case SD_FAILSAFE:
         // In-flight recovery: no checks, the master decides
-        servoDriverSetState(armedFrame ? SD_ARMED : SD_DISARMED);
+        servoDriverSetState(armedFrame ? SD_ARMED : SD_DISARMED, DIAG_CAUSE_FAILSAFE_RECOVER);
         servoDriverSendStatusText(MAV_SEVERITY_CRITICAL, "FAILSAFE: link restored");
         break;
     }
@@ -422,7 +587,7 @@ static void servoDriverCheckLinkTimeout(timeUs_t currentTimeUs)
         sessionActive = false;
         haveSeq = false;
         if (state == SD_ARMED) {
-            servoDriverSetState(SD_FAILSAFE);
+            servoDriverSetState(SD_FAILSAFE, DIAG_CAUSE_LINK_TIMEOUT);
             servoDriverSendStatusText(MAV_SEVERITY_CRITICAL, "FAILSAFE: link lost");
         }
     }
@@ -489,6 +654,7 @@ void servoDriverWatchdogFeed(void)
 
 void servoDriverInit(void)
 {
+    diagInit();
     servoDriverOpenPort();
 
     // Until the first frame arrives: servos in the middle, motors at zero throttle
@@ -505,6 +671,7 @@ void servoDriverInit(void)
 void servoDriverUpdate(timeUs_t currentTimeUs)
 {
     servoDriverWatchdogFeed();
+    diagNoteCycleStart(currentTimeUs);
 
     if (!bootGraceDone && currentTimeUs / 1000 >= servoDriverConfig()->bootGraceMs) {
         bootGraceDone = true;
@@ -520,6 +687,7 @@ void servoDriverUpdate(timeUs_t currentTimeUs)
         mavlink_status_t *channelStatus = mavlink_get_channel_status(MAVLINK_CHANNEL);
         while (serialRxBytesWaiting(mavlinkPort)) {
             const uint8_t c = serialRead(mavlinkPort);
+            diagNoteRxByte();
             const uint8_t result = mavlink_parse_char(MAVLINK_CHANNEL, c, &rxMessage, &rxStatus);
             // parse errors of this call: counted inside the frame parser (copied to rxStatus) and bad CRC (added by mavlink_parse_char)
             const uint16_t errors = rxStatus.packet_rx_drop_count + channelStatus->parse_error;
@@ -540,6 +708,8 @@ void servoDriverUpdate(timeUs_t currentTimeUs)
         }
         // a frame that arrives after a longer gap is the first of a new session: handled above, the timeout check ran before
     }
+
+    diagNoteCycleEnd(txDrops, errorsComm);
 
     servoDriverRecoverLink(currentTimeUs);
 

@@ -30,6 +30,7 @@
 
 // Servo driver mode: no gyro/PID/RX tasks, servos are driven from MAVLink (see io/servo_driver.c)
 #define USE_SERVO_DRIVER
+#define USE_SERVO_DRIVER_DIAG   // on-chip diagnostic counters (servoDriverDiag), read over SWD
 #define USE_FAKE_GYRO
 #define USE_FAKE_ACC
 #define USE_VCP
