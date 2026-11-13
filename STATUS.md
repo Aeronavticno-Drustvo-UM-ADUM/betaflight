@@ -8,6 +8,14 @@ Owner: the master is primary. The board never refuses an ARMED frame; readiness 
 - Board: not flashed with D8 yet (`hw_output_check.py --armed` run pending, needs the owner at the bench).
 - INAV SITL suite (`../inav/src/test/adum/sitl/`): tests 12 (arm rejected), 09, 10, 02, 15, 17, 18 still encode the old reject / STANDBY behaviour.
 
+## Next session: board D8 check (owner at the bench, props off)
+Board still runs the pre-D8 firmware. Do not run hardware checks while an agent rebuilds the ELF.
+1. Build: `docker run --rm --entrypoint make -v "$PWD":/src -w /src inav-build TARGET=SATELLITEBOARD GCC_REQUIRED_VERSION=10.3.1 -j"$(nproc)"`.
+2. Flash: `openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c "program obj/main/betaflight_SATELLITEBOARD.elf verify reset exit"`.
+3. Run: `python3 test/tools/hw_output_check.py --port /dev/serial/by-id/usb-FTDI_Dual_RS232-HS-if01-port0 --armed --props-off` (3 runs; was 18/18 before D8). SWD: `test/tools/read_diag.py` (fields renamed: `edgesNotReady`, `lastNotReadyReason`, `notReadyTexts*`).
+4. Not covered by `hw_output_check.py` yet, check on the board: after power-up HEARTBEAT `UNINIT` + `NOT READY: LINK`/`BOOT_GRACE`, then `STANDBY` once AUX frames flow; an ARMED frame during `UNINIT` arms (`edgesNotReady` +1). Either a short manual check or one `sonnet` agent adding a readiness step to `hw_output_check.py` (decide at session start).
+5. Record results here and in `docs/hw_bench_report.md`; then INAV D8 is the owner's.
+
 ## Last results (2026-11-11)
 | Item | Result |
 |---|---|
@@ -33,7 +41,7 @@ Setup, details also in the INAV repo memory/STATUS:
 - **H1 closed (2026-11-13):** not a firmware bug; the WCH adapter delayed the board's HEARTBEAT. With FTDI: 3/3 PASS incl. armed motors, disarm, failsafe on link loss (steps 3, 4).
 
 ## Next steps
-- **Done 2026-11-13:** fix W (int32 timestamp windows, `docs/fix_W_timestamps.md`, SITL `test_06_time_wrap.py`, verified on the board); diagnostic counters `USE_SERVO_DRIVER_DIAG` (on for SATELLITEBOARD); K (SITL startup race) fixed with a mutex in `serial_tcp.c` (SITL only). Next: CCER/GPIO reads (TODO U), remaining bench plan (V), owner decisions (TODO.md, X).
+- **Done 2026-11-13:** D8 (master is primary, `docs/arming_safety.md`); fix W (int32 timestamp windows, `docs/fix_W_timestamps.md`, SITL `test_06_time_wrap.py`, verified on the board); diagnostic counters `USE_SERVO_DRIVER_DIAG` (on for SATELLITEBOARD); K (SITL startup race) fixed with a mutex in `serial_tcp.c` (SITL only). Next: CCER/GPIO reads (TODO U), remaining bench plan (V), owner decisions (TODO.md, X).
 - Next (board): CCER/GPIO reads in `hw_output_check.py` (TODO U); remaining bench plan (V) with the owner.
 - Hardware test backend for `test/common/harness.py` (`--hw`, serial MAVLink + VCP CLI), one sub-task per piece: transport, then log-free checks (HEARTBEAT, SYS_STATUS, STATUSTEXT, arming, failsafe timing), then an OpenOCD helper that reads CCR registers as output check. Scope only for timing (50 Hz, 200 Hz motor, failsafe edges). Motors armed only with props off.
 - Bench test plan: IWDG reset/brownout while armed, `save` vs IWDG, 200 Hz motor pulse on scope, ESC on failsafe/recovery, UART noise/cable pull/re-init, P5, GPS M10.
