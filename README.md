@@ -7,7 +7,7 @@ Fork of [Betaflight](https://github.com/betaflight/betaflight) 4.3.x (MSP API 1.
 
 ## System
 
-The master flight controller is INAV on EVIS_FC in the fuselage (sibling repo `../inav`, branch `adum-master10+sat`). The SATELLITEBOARD sits in the wing, so only power and one serial bus wire run between the fuselage and the wing.
+The master flight controller is INAV on EVIS_FC in the fuselage (sibling repo `../inav`, branch `adum-master10+sat`). The SATELLITEBOARD sits in the wing, so only power and one bus cable run between the fuselage and the wing.
 
 ```
  EVIS_FC, fuselage (INAV, ../inav)          SATELLITEBOARD, wing (this repo)
