@@ -70,6 +70,7 @@
 #define SERVO_DRIVER_LOW_RATE_TEXT_US   10000000
 #define SERVO_DRIVER_PARSER_RESET_US    1000000 // no valid frame for this long: reset the parser, every 1 s
 #define SERVO_DRIVER_UART_REINIT_US     2000000 // no valid frame for this long: re-init the UART, every 2 s
+#define SERVO_DRIVER_SILENCE_CAP_US     10000000 // cap of the silence measured while no session; must stay > max link timeout (5 s) and > UART re-init time
 
 #define MAVLINK_CHANNEL                 MAVLINK_COMM_0
 
@@ -110,7 +111,7 @@ static servoDriverState_e state;
 static bool sessionActive;      // link session: valid ADUM_AUX_CHANNELS seen and none missing for longer than the link timeout
 static bool prevFrameArmed;     // arming_status of the previous AUX frame of the session
 static uint8_t validFrames;     // consecutive valid AUX frames of the session (saturates), cleared by a parse/CRC error
-static timeUs_t sessionStartUs;
+static bool sessionAtLastTick;  // the current session was already active at the last 1 Hz tick
 static timeUs_t lastAuxUs;      // last valid ADUM_AUX_CHANNELS, the only frame that refreshes the link timer
 static timeUs_t lastCrcErrorUs;
 static bool haveCrcError;
@@ -283,10 +284,10 @@ static void servoDriverSendGpsPvt(const gpsPvt_t *pvt)
 }
 
 // Own-health checks P1-P5 of the arm edge (docs/arming_safety.md section 4)
-static rejectReason_e servoDriverCheckArmEdge(timeUs_t currentTimeUs)
+static rejectReason_e servoDriverCheckArmEdge(void)
 {
     if (validFrames < SERVO_DRIVER_LINK_READY_FRAMES
-        || (haveCrcError && cmpTimeUs(currentTimeUs, lastCrcErrorUs) < SERVO_DRIVER_LINK_CRC_QUIET_US)) {
+        || haveCrcError) {
         return REJECT_LINK_NOT_READY;
     }
     if (!bootGraceDone) {
@@ -300,7 +301,7 @@ static rejectReason_e servoDriverCheckArmEdge(timeUs_t currentTimeUs)
         cliMode ||
 #endif
         saveBusy
-        || (haveConfigActivity && cmpTimeUs(currentTimeUs, lastConfigActivityUs) < SERVO_DRIVER_CONFIG_QUIET_US)) {
+        || haveConfigActivity) {
         return REJECT_CONFIG_ACTIVE;
     }
     return REJECT_NONE;
@@ -315,13 +316,17 @@ static void servoDriverHandleAux(const mavlink_message_t *msg, timeUs_t currentT
     const bool newSession = !sessionActive;
     if (newSession) {
         sessionActive = true;
-        sessionStartUs = currentTimeUs;
+        sessionAtLastTick = false;
         validFrames = 0;
     }
     if (validFrames < UINT8_MAX) {
         validFrames++;
     }
     lastAuxUs = currentTimeUs;
+    lastParserResetUs = currentTimeUs;  // recovery resets are measured from the last valid frame
+#ifndef SIMULATOR_BUILD
+    lastUartResetUs = currentTimeUs;
+#endif
     winAuxFrames++;
 
     switch (state) {
@@ -332,10 +337,10 @@ static void servoDriverHandleAux(const mavlink_message_t *msg, timeUs_t currentT
                 servoDriverSetState(SD_ARMED);
             } else if (!prevFrameArmed) {
                 // Observed arm edge: own-health checks. On reject the board stays disarmed until the next edge.
-                const rejectReason_e reason = servoDriverCheckArmEdge(currentTimeUs);
+                const rejectReason_e reason = servoDriverCheckArmEdge();
                 if (reason == REJECT_NONE) {
                     servoDriverSetState(SD_ARMED);
-                } else if (!haveRejectText || cmpTimeUs(currentTimeUs, lastRejectTextUs) >= SERVO_DRIVER_REJECT_TEXT_US) {
+                } else if (!haveRejectText) {
                     haveRejectText = true;
                     lastRejectTextUs = currentTimeUs;
                     servoDriverSendStatusText(MAV_SEVERITY_WARNING, rejectText[reason]);
@@ -392,6 +397,23 @@ static void servoDriverTrackSequence(uint8_t seq)
     winMessages++;
 }
 
+// Clear the "have" flag of each timestamp window once it has expired, so an old timestamp is never compared (int32 wraps at 35.8 min)
+static void servoDriverExpireWindows(timeUs_t currentTimeUs)
+{
+    if (haveCrcError && cmpTimeUs(currentTimeUs, lastCrcErrorUs) >= SERVO_DRIVER_LINK_CRC_QUIET_US) {
+        haveCrcError = false;
+    }
+    if (haveConfigActivity && cmpTimeUs(currentTimeUs, lastConfigActivityUs) >= SERVO_DRIVER_CONFIG_QUIET_US) {
+        haveConfigActivity = false;
+    }
+    if (haveRejectText && cmpTimeUs(currentTimeUs, lastRejectTextUs) >= SERVO_DRIVER_REJECT_TEXT_US) {
+        haveRejectText = false;
+    }
+    if (haveLowRateText && cmpTimeUs(currentTimeUs, lastLowRateTextUs) >= SERVO_DRIVER_LOW_RATE_TEXT_US) {
+        haveLowRateText = false;
+    }
+}
+
 // No valid ADUM_AUX_CHANNELS for the link timeout ends the link session; while armed that is FAILSAFE (it never times out)
 static void servoDriverCheckLinkTimeout(timeUs_t currentTimeUs)
 {
@@ -422,6 +444,10 @@ static void servoDriverOpenPort(void)
 // Link recovery: reset the parser every 1 s and re-init the UART every 2 s while no valid frame arrives
 static void servoDriverRecoverLink(timeUs_t currentTimeUs)
 {
+    if (!sessionActive && cmpTimeUs(currentTimeUs, lastAuxUs) > SERVO_DRIVER_SILENCE_CAP_US) {
+        // keep the silence far below 2^31 us (35.8 min): the cap exceeds every recovery interval
+        lastAuxUs = currentTimeUs - SERVO_DRIVER_SILENCE_CAP_US;
+    }
     const int32_t silentUs = cmpTimeUs(currentTimeUs, lastAuxUs);
     if (silentUs >= SERVO_DRIVER_PARSER_RESET_US && cmpTimeUs(currentTimeUs, lastParserResetUs) >= SERVO_DRIVER_PARSER_RESET_US) {
         lastParserResetUs = currentTimeUs;
@@ -484,6 +510,9 @@ void servoDriverUpdate(timeUs_t currentTimeUs)
         bootGraceDone = true;
     }
 
+    // Expire the timestamp windows first: the use sites below test the flags only
+    servoDriverExpireWindows(currentTimeUs);
+
     // Failsafe check first, so that the HEARTBEAT of this cycle shows the state
     servoDriverCheckLinkTimeout(currentTimeUs);
 
@@ -518,15 +547,18 @@ void servoDriverUpdate(timeUs_t currentTimeUs)
     servoDriverWriteMotors();
 
     if (mavlinkPort) {
-        if (cmpTimeUs(currentTimeUs, lastTickUs) >= SERVO_DRIVER_ONE_SECOND_US) {
+        const int32_t sinceTickUs = cmpTimeUs(currentTimeUs, lastTickUs);
+        // negative: lastTickUs is older than 2^31 us (it is never in the future)
+        if (sinceTickUs >= SERVO_DRIVER_ONE_SECOND_US || sinceTickUs < 0) {
             // low frame rate: only for a session that was already active during the whole window
-            if (sessionActive && cmpTimeUs(sessionStartUs, lastTickUs) <= 0 && winAuxFrames < SERVO_DRIVER_LOW_RATE_HZ
-                && (!haveLowRateText || cmpTimeUs(currentTimeUs, lastLowRateTextUs) >= SERVO_DRIVER_LOW_RATE_TEXT_US)) {
+            if (sessionActive && sessionAtLastTick && winAuxFrames < SERVO_DRIVER_LOW_RATE_HZ
+                && !haveLowRateText) {
                 haveLowRateText = true;
                 lastLowRateTextUs = currentTimeUs;
                 servoDriverSendStatusText(MAV_SEVERITY_WARNING, "LINK: low frame rate");
             }
             lastTickUs = currentTimeUs;
+            sessionAtLastTick = sessionActive;
             servoDriverSendHeartbeat();
             servoDriverSendSysStatus();
             winAuxFrames = 0;
