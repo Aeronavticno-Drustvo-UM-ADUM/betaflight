@@ -3,6 +3,7 @@
 
 Phase 1: several commanded servo patterns, each servo pulse within tolerance, stable index -> pin mapping.
 Phase 2: motor values in disarmed frames are ignored, motors stay at min_command (OneShot125: 125 us).
+Phase 3: pin level: timer channel output enabled (CCER, TIM1 MOE) and GPIO alternate-function push-pull for every pin.
 
 Run via test/hw/run_hw_tests.py, or: python3 test_hw_01_outputs.py --run-dir DIR
 Exit codes: 0 passed, 1 check failed, 2 setup impossible.
@@ -77,6 +78,21 @@ def phase_disarmed_motors(results, streamer):
     streamer.motors = [hw.mav.PULSE_IGNORE] * hw.MOTOR_COUNT
 
 
+def phase_pin_config(results):
+    """Phase 3: every servo and motor pin has its timer output enabled and GPIO in AF push-pull mode (read over SWD)."""
+    results.start_phase("3", "pin config, disarmed")
+    config, afio_mapr = sat_bench.pin_config()
+    for pin, pin_config in config.items():
+        pin_ok = (pin_config["ccer_enabled"]
+                  and pin_config["af_push_pull"]
+                  and pin_config["moe"] is not False)      # moe is None for timers other than TIM1
+        results.check("pin_%s_output" % pin, pin_ok,
+                      "%s CH%d, CCER enabled %s, MOE %s, GPIO nibble 0x%X, AF push-pull %s" % (
+                          pin_config["timer"], pin_config["channel"], pin_config["ccer_enabled"],
+                          pin_config["moe"], pin_config["gpio_nibble"], pin_config["af_push_pull"]))
+    results.number("AFIO_MAPR (0x%08X)" % afio_mapr, afio_mapr, "raw")       # info only, never a failure
+
+
 def run_preflight(results):
     """Runs the bench preflight; marks the run as setup failure (exit 2) and returns False when it fails."""
     try:
@@ -105,6 +121,7 @@ def main():
         streamer = sat_bench.start_master(armed=False, servos=[1500] * hw.SERVO_COUNT)
         phase_servos(results, streamer)
         phase_disarmed_motors(results, streamer)
+        phase_pin_config(results)
     finally:
         if streamer is not None:
             streamer.stop()            # always stop the 50 Hz stream

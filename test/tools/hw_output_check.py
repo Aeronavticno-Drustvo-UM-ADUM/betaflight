@@ -46,6 +46,13 @@ REG_BDTR = 0x44            # TIM1 only, bit 15 = MOE (main output enable)
 SERVO_PINS = {"PA8": ("TIM1", 1), "PA9": ("TIM1", 2), "PA10": ("TIM1", 3), "PA15": ("TIM2", 1), "PB3": ("TIM2", 2)}
 MOTOR_PINS = {"PA6": ("TIM3", 1), "PB0": ("TIM3", 3), "PB1": ("TIM3", 4)}
 
+REG_CCER = 0x20            # bit 4*(channel-1) = CCnE (channel output enable)
+BDTR_MOE_BIT = 0x8000
+GPIO_BASE = {"A": 0x40010800, "B": 0x40010C00}
+REG_GPIO_CRL = 0x00        # pins 0-7, 4 bits per pin
+REG_GPIO_CRH = 0x04        # pins 8-15
+AFIO_MAPR = 0x40010004     # TIM2 remap bits [9:8], SWJ_CFG bits [26:24] (SWJ_CFG may read 0)
+
 MOTOR_MIN_US = 1000        # min_command in servo_config_board.txt
 ONESHOT125_DIVIDER = 8     # OneShot125 pulse = command / 8 (1000 us -> 125 us)
 SERVO_COUNT = 5
@@ -199,6 +206,82 @@ def read_pulses_us(openocd_args, sample_address):
         pulses[pin] = ticks * (prescaler + 1) * 1e6 / TIMER_CLOCK_HZ
     tim1_moe = bool(values[TIMER_BASE["TIM1"] + REG_BDTR] & 0x8000)
     return pulses, tim1_moe
+
+
+def gpio_config_register(pin_name):
+    """Address of the GPIO CRL/CRH register and the bit shift of the pin's nibble, from a name like 'PA15'."""
+    port_letter = pin_name[1]
+    pin_number = int(pin_name[2:])
+    register = REG_GPIO_CRL if pin_number < 8 else REG_GPIO_CRH
+    shift = 4 * (pin_number % 8)
+    return GPIO_BASE[port_letter] + register, shift
+
+
+def read_pin_config(openocd_args):
+    """Read timer output enables and GPIO modes of all used pins in one OpenOCD run.
+
+    Returns ({pin: {timer, channel, ccer_enabled, moe, gpio_nibble, af_push_pull}}, afio_mapr).
+    moe is None for pins not on TIM1. The core keeps running (mdw reads need no halt).
+    """
+    pins = dict(SERVO_PINS)
+    pins.update(MOTOR_PINS)
+    addresses = [AFIO_MAPR, TIMER_BASE["TIM1"] + REG_BDTR]
+    for timer_base in TIMER_BASE.values():
+        addresses.append(timer_base + REG_CCER)
+    for pin_name in pins:
+        register_address, _shift = gpio_config_register(pin_name)
+        addresses.append(register_address)
+    addresses = sorted(set(addresses))
+
+    commands = []
+    for address in addresses:
+        commands += ["-c", "mdw 0x%08X 1" % address]
+    cmd = ["openocd"] + openocd_args + ["-c", "init"] + commands + ["-c", "shutdown"]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    text = result.stdout + result.stderr
+    values = {}
+    for address, value in re.findall(r"0x([0-9a-fA-F]{8}): ([0-9a-fA-F]{8})", text):
+        values[int(address, 16)] = int(value, 16)
+    if len(values) < len(addresses):
+        raise SystemExit("OpenOCD pin config read failed (%d of %d registers). Is the ST-Link connected?\n%s" % (
+            len(values), len(addresses), text[-800:]))
+
+    config = {}
+    for pin_name, (timer, channel) in pins.items():
+        ccer = values[TIMER_BASE[timer] + REG_CCER]
+        channel_enable_bit = 1 << (4 * (channel - 1))
+        moe = None
+        if timer == "TIM1":
+            moe = bool(values[TIMER_BASE["TIM1"] + REG_BDTR] & BDTR_MOE_BIT)
+        register_address, shift = gpio_config_register(pin_name)
+        nibble = (values[register_address] >> shift) & 0xF
+        mode_is_output = (nibble & 0x3) != 0
+        cnf_is_alternate_push_pull = (nibble & 0xC) == 0x8
+        config[pin_name] = {
+            "timer": timer,
+            "channel": channel,
+            "ccer_enabled": bool(ccer & channel_enable_bit),
+            "moe": moe,
+            "gpio_nibble": nibble,
+            "af_push_pull": mode_is_output and cnf_is_alternate_push_pull,
+        }
+    return config, values[AFIO_MAPR]
+
+
+def pin_config_problems(config):
+    """Human-readable problems for a read_pin_config() result (a (config, afio_mapr) tuple or the dict). Empty = OK."""
+    if isinstance(config, tuple):
+        config = config[0]
+    problems = []
+    for pin_name, pin in config.items():
+        label = "%s (%s CH%d)" % (pin_name, pin["timer"], pin["channel"])
+        if not pin["ccer_enabled"]:
+            problems.append("%s: timer channel output not enabled (CCER CC%dE = 0)" % (label, pin["channel"]))
+        if pin["moe"] is False:
+            problems.append("%s: TIM1 main output not enabled (BDTR MOE = 0)" % label)
+        if not pin["af_push_pull"]:
+            problems.append("%s: GPIO not alternate-function push-pull output (nibble 0x%X)" % (label, pin["gpio_nibble"]))
+    return problems
 
 
 def settle_and_read(openocd_args, sample_address, wait_s=0.4):

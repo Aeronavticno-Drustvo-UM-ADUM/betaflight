@@ -1,6 +1,6 @@
 # Status
 
-Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-11-13); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench (L3): rerunnable standalone suite `test/hw/` hw_01-04 **PASS** (2026-11-13), combined suites with INAV EVIS_FC pass (INAV repo). Report: `docs/hw_bench_report.md`. Flight readiness plan: INAV `docs/adum/flight_readiness.md` (A1 done, next A2). Not yet tested in the aircraft.
+Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-11-13); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench (L3): rerunnable standalone suite `test/hw/` hw_01-04 **PASS** (2026-11-13), combined suites with INAV EVIS_FC pass (INAV repo). Report: `docs/hw_bench_report.md`. Flight readiness plan: INAV `docs/adum/flight_readiness.md` (A1, A2 done, next A3). Not yet tested in the aircraft.
 
 ## Arming rule D8 (2026-11-13)
 Owner: the master is primary. The board never refuses an ARMED frame; readiness P1-P5 is reported only (HEARTBEAT `STANDBY` ready / `UNINIT` not ready, STATUSTEXT `NOT READY: <code>` at 1 Hz); unknown message ids are ignored. Master requirements for INAV: `docs/arming_safety.md` section 11; message id rules section 12; accepted ground cases section 13.
@@ -46,7 +46,8 @@ Setup, details also in the INAV repo memory/STATUS:
 
 ## Next steps
 - **Done 2026-11-13:** D8 (master is primary, `docs/arming_safety.md`); fix W (int32 timestamp windows, `docs/fix_W_timestamps.md`, SITL `test_06_time_wrap.py`, verified on the board); diagnostic counters `USE_SERVO_DRIVER_DIAG` (on for SATELLITEBOARD); K (SITL startup race) fixed with a mutex in `serial_tcp.c` (SITL only). Next: CCER/GPIO reads (TODO U), remaining bench plan (V), owner decisions (TODO.md, X).
-- Next (board): flight readiness A2 = CCER/GPIO reads in the SWD pulse read (TODO U), then A3 watchdog (IWDG under a halt), A4 reset while armed (INAV `docs/adum/flight_readiness.md`).
+- A2 done 2026-11-13: `hw_output_check.read_pin_config()` / `sat_bench.pin_config()` (CCER, TIM1 MOE, GPIO AF push-pull, AFIO_MAPR info), hw_01 phase 3, 18/18 `--repeat 2`.
+- Next (board): A3 watchdog (IWDG under a halt), A4 reset while armed (INAV `docs/adum/flight_readiness.md`).
 - Hardware tests: `test/hw/` (FTDI fake master + SWD) replaces the planned `harness.py --hw` backend. Scope only for timing (50 Hz, 200 Hz motor, failsafe edges). Motors armed only with props off.
 - Bench test plan: IWDG reset/brownout while armed, `save` vs IWDG, 200 Hz motor pulse on scope, ESC on failsafe/recovery, UART noise/cable pull/re-init, P5, GPS M10.
 - SITL phase 2: GPS faults, TX buffer saturation, configurator access while armed.

@@ -92,6 +92,11 @@ def servo_pulses_us():
     return {pin: pulses[pin] for pin in hw.SERVO_PINS}
 
 
+def pin_config():
+    """Pin-level output config over SWD: ({pin: {timer, channel, ccer_enabled, moe, gpio_nibble, af_push_pull}}, afio_mapr)."""
+    return hw.read_pin_config(OPENOCD_ARGS)
+
+
 def start_master(armed=False, motors=None, servos=None):
     """Opens the FTDI port and starts the 50 Hz AUX frame stream (hw.FrameStreamer, started).
 
