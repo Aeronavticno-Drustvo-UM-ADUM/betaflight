@@ -2,6 +2,12 @@
 
 Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-11-13); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench started 2026-11-12 (L3 in progress): board flashed and talking MAVLink; first automated HW output check `test/tools/hw_output_check.py` (SWD timer-register reads): servos and disarmed motors PASS, arm edge, armed motors and failsafe PASS (H1 was the WCH adapter). Report: `docs/hw_bench_report.md`.
 
+## Arming rule D8 (2026-11-13)
+Owner: the master is primary. The board never refuses an ARMED frame; readiness P1-P5 is reported only (HEARTBEAT `STANDBY` ready / `UNINIT` not ready, STATUSTEXT `NOT READY: <code>` at 1 Hz); unknown message ids are ignored. Master requirements for INAV: `docs/arming_safety.md` section 11; message id rules section 12; accepted ground cases section 13.
+- SITL: full suite 310 checks, 0 failed, 1 known, 0 restarts (test_05 136, test_06 29).
+- Board: not flashed with D8 yet (`hw_output_check.py --armed` run pending, needs the owner at the bench).
+- INAV SITL suite (`../inav/src/test/adum/sitl/`): tests 12 (arm rejected), 09, 10, 02, 15, 17, 18 still encode the old reject / STANDBY behaviour.
+
 ## Last results (2026-11-11)
 | Item | Result |
 |---|---|
@@ -33,6 +39,6 @@ Setup, details also in the INAV repo memory/STATUS:
 - Bench test plan: IWDG reset/brownout while armed, `save` vs IWDG, 200 Hz motor pulse on scope, ESC on failsafe/recovery, UART noise/cable pull/re-init, P5, GPS M10.
 - SITL phase 2: GPS faults, TX buffer saturation, configurator access while armed.
 - SITL phase 3: soak, timer wrap, reboot, EEPROM.
-- Open owner decisions (`TODO.md`): E default serial config, G TX drop counter, I signed frames, J IWDG vs `bl`, M-R and X (arming/link, ARM-C proposal in INAV `docs/adum/arm_link_proposal.md`, on hold).
+- Open owner decisions (`TODO.md`): E default serial config, G TX drop counter, J IWDG vs `bl`. M, N, O, P, X closed by D8 (2026-11-13).
 - INAV <-> satellite SITL suite: INAV repo `src/test/adum/sitl/`, report `docs/adum/satellite_test_report.md` (18 tests, 0 firmware spec failures, findings F1-F10).
 - Pushed through `06f7c2e43`; later commits local (not pushed).
