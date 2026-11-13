@@ -10,6 +10,8 @@ test/
   servo_config.txt              CLI configuration of the servo driver (also for the real board)
   common/mavlink_gen.py         MAVLink 2.0 ADUM frame generator and parser (standard library only)
   common/harness.py             Sitl, BoardLink, FakeUblox, config/build helpers, check()/known_issue()
+  Sitl.time_jump() / Fixture.time_jump()  SITL only: SIGUSR1 adds 25 min to micros()/millis() per call (below the 35.8 min
+                                wrap of the 32-bit microsecond counter, so per-second timers keep working); delays do not sleep longer
   test_01_normal_operation.py   healthy link
   test_02_link_loss.py          failsafe timing and recovery
   test_03_frame_integrity.py    damaged, unusual and foreign frames

@@ -26,6 +26,8 @@
 
 #include <errno.h>
 #include <time.h>
+#include <signal.h>
+#include <unistd.h>
 
 #include "common/maths.h"
 
@@ -65,6 +67,11 @@ static servo_packet pwmPkt;
 
 static struct timespec start_time;
 static double simRate = 1.0;
+
+// test hook: each SIGUSR1 moves the SITL clock forward by TIME_JUMP_SECONDS
+#define TIME_JUMP_SECONDS 1500
+static volatile sig_atomic_t timeJumpCount = 0;
+static void timeJumpHandler(int signalNumber);
 static pthread_t tcpWorker, udpWorker;
 static bool workerRunning = true;
 static udpLink_t stateLink, pwmLink;
@@ -216,6 +223,7 @@ void systemInit(void) {
     int ret;
 
     clock_gettime(CLOCK_MONOTONIC, &start_time);
+    signal(SIGUSR1, timeJumpHandler);
     printf("[system]Init...\n");
 
     SystemCoreClock = 500 * 1e6; // fake 500MHz
@@ -292,6 +300,25 @@ void indicateFailure(failureMode_e mode, int repeatCount)
 
 // Time part
 // Thanks ArduPilot
+
+// SIGUSR1 handler: counts one clock jump and reports it (write() is async-signal-safe)
+static void timeJumpHandler(int signalNumber) {
+    UNUSED(signalNumber);
+    timeJumpCount++;
+
+    char message[64];
+    int length = snprintf(message, sizeof(message), "[SITL] time jump +%d s (total %d)\n",
+                          TIME_JUMP_SECONDS, (int)timeJumpCount);
+    if (length > 0) {
+        ssize_t written = write(STDOUT_FILENO, message, (size_t)length);
+        UNUSED(written);
+    }
+}
+
+// Total clock offset from all jumps so far, in nanoseconds
+static uint64_t timeJumpOffsetNs(void) {
+    return (uint64_t)timeJumpCount * TIME_JUMP_SECONDS * 1000000000ULL;
+}
 uint64_t nanos64_real() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -318,7 +345,7 @@ uint64_t micros64() {
     out += (now - last) * simRate;
     last = now;
 
-    return out*1e-3;
+    return (out + timeJumpOffsetNs())*1e-3;
 //    return micros64_real();
 }
 
@@ -330,7 +357,7 @@ uint64_t millis64() {
     out += (now - last) * simRate;
     last = now;
 
-    return out*1e-6;
+    return (out + timeJumpOffsetNs())*1e-6;
 //    return millis64_real();
 }
 

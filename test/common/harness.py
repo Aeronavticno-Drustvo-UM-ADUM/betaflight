@@ -8,6 +8,7 @@ import argparse
 import datetime
 import os
 import random
+import signal
 import socket
 import struct
 import subprocess
@@ -105,6 +106,11 @@ class Sitl:
     def rates(self, since, until=float("inf")):
         with self.lock:
             return [n for t, n in self.rate_log if since <= t <= until]
+
+    def time_jump(self):
+        """SITL only: moves the SITL clock forward by 25 min (SIGUSR1) and waits for the [SITL] time jump line."""
+        self.proc.send_signal(signal.SIGUSR1)
+        time.sleep(0.1)
 
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
@@ -550,6 +556,9 @@ class Fixture:
         if ok:
             self.link = BoardLink(connect(MAVLINK_PORT))
         return ok
+
+    def time_jump(self):
+        self.sitl.time_jump()
 
     def since_boot(self):
         return time.monotonic() - self.sitl.t_start
