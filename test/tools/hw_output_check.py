@@ -11,8 +11,11 @@ Steps:
   1. servos, disarmed: 5 distinct pulses; the script finds which servo index drives which pin and checks
      the widths against the commanded ones (tolerance --tol-us).
   2. motors, disarmed: motor values in the frames must be ignored, outputs stay at min_command.
-  3. (--armed) motors, armed: arm edge, HEARTBEAT shows ARMED, motors follow the frame; then disarm.
-  4. (--armed) link loss while armed: frames stop, motors go to min_command (failsafe).
+  3. (--armed) motors, armed: arm edge, board ARMED (SWD diag) and HEARTBEAT shows ARMED, motors follow the
+     frame; then disarm.
+  4. (--armed) link loss while armed: frames stop, motors go to min_command (failsafe, SWD state FAILSAFE).
+  The arm state is read from servoDriverDiag over SWD, so a slow UART adapter delaying HEARTBEAT cannot fake
+  an arming failure: the SWD check tells the board's truth, the HEARTBEAT check the reporting path.
   Steps 3 and 4 spin the motors at a low pulse. Propellers off, ESCs/motors may be disconnected.
 
 Exit code 0 = all checks passed. Standard library only. The ST-Link must be connected.
@@ -24,12 +27,14 @@ import subprocess
 import sys
 import threading
 import time
+from collections import namedtuple
 
 TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS_DIR)
 sys.path.insert(0, os.path.join(TOOLS_DIR, "..", "common"))
 import mavlink_gen as mav  # noqa: E402
 import send_aux_channels as serial_io  # noqa: E402  (open_port, write_all, read_available)
+import read_diag  # noqa: E402  (FIELDS, read_words)
 
 TIMER_CLOCK_HZ = 72_000_000
 TIMER_BASE = {"TIM1": 0x40012C00, "TIM2": 0x40000000, "TIM3": 0x40000400}
@@ -47,6 +52,13 @@ SERVO_COUNT = 5
 ARM_EXPECTED_S = 1.5       # arm edge -> HEARTBEAT shows ARMED (HEARTBEAT is sent at 1 Hz)
 ARM_WAIT_MAX_S = 15.0      # how long to wait for a late arm before giving up
 MOTOR_COUNT = 3
+SWD_SETTLE_S = 0.3         # command -> SWD read of the board state (the board needs a few 20 ms frames)
+
+DIAG_MAGIC = 0x5D1A6001
+STATE_DISARMED, STATE_ARMED, STATE_FAILSAFE = 0, 1, 2
+STATE_NAMES = {STATE_DISARMED: "DISARMED", STATE_ARMED: "ARMED", STATE_FAILSAFE: "FAILSAFE"}
+
+BoardState = namedtuple("BoardState", "last_to_state armed_at_frame first_armed_frame edge_rejects last_reject_reason")
 
 
 class Results:
@@ -101,14 +113,41 @@ class FrameStreamer(threading.Thread):
         self.running = False
         self.join(timeout=1.0)
 
-    def wait_board_state(self, armed, timeout_s):
-        """Wait for a HEARTBEAT, received after this call started, with the given arm state. Returns the wait in s or None."""
-        start = time.monotonic()
+    def wait_board_state(self, armed, timeout_s, since=None):
+        """Wait for a HEARTBEAT, received after `since` (default: now), with the given arm state. Returns the wait in s or None."""
+        start = time.monotonic() if since is None else since
         while time.monotonic() - start < timeout_s:
             if self.board_armed is armed and self.heartbeat_time > start:
                 return time.monotonic() - start
             time.sleep(0.02)
         return None
+
+
+def read_board_state(openocd_args, diag_address):
+    """Read the arm state from servoDriverDiag over SWD (no halt). None when the firmware has no diag block."""
+    words = read_diag.read_words(diag_address, len(read_diag.FIELDS), " ".join(openocd_args))
+    values = dict(zip(read_diag.FIELDS, words))
+    if values["magic"] != DIAG_MAGIC:
+        return None
+    return BoardState(values["lastToState"], values["armedAtFrameNo"], values["firstArmedFrameNo"],
+                      values["edgeRejects"], values["lastRejectReason"])
+
+
+def describe_state(state):
+    """Short text of a BoardState for check detail lines."""
+    if state is None:
+        return "SWD n/a"
+    return "SWD %s, armedAt %d, firstArmed %d, edgeRejects %d (reason %d)" % (
+        STATE_NAMES.get(state.last_to_state, "?"), state.armed_at_frame, state.first_armed_frame,
+        state.edge_rejects, state.last_reject_reason)
+
+
+def swd_check(results, name, state, ok_condition):
+    """Add an SWD check; with no diag in the firmware only print a note (HEARTBEAT checks still run)."""
+    if state is None:
+        print("    (firmware has no diag block: SWD check '%s' skipped, HEARTBEAT only)" % name)
+        return
+    results.check(name, ok_condition(state), describe_state(state))
 
 
 def find_symbol_address(nm_path, elf_path, symbol):
@@ -217,19 +256,25 @@ def check_motors_disarmed(streamer, openocd_args, sample_address, tol_us, result
     streamer.motors = [mav.PULSE_IGNORE] * MOTOR_COUNT
 
 
-def check_motors_armed(streamer, openocd_args, sample_address, tol_us, results):
+def check_motors_armed(streamer, openocd_args, sample_address, diag_address, tol_us, results):
     """Step 3: arm edge, motors follow the frame, disarm returns them to min_command."""
     print("Step 3: motors, armed (props off!)")
     streamer.armed = False
     streamer.motors = [1000, 1000, 1000]
     time.sleep(1.0)                      # disarmed frames first, so the board sees an arm edge
+    arm_time = time.monotonic()
     streamer.armed = True
     commanded = [1100, 1200, 1300]
     streamer.motors = list(commanded)
-    arm_wait = streamer.wait_board_state(True, ARM_WAIT_MAX_S)
-    results.check("arm edge accepted within %.1f s (spec: immediately; HEARTBEAT is 1 Hz)" % ARM_EXPECTED_S,
+    time.sleep(SWD_SETTLE_S)
+    arm_state = read_board_state(openocd_args, diag_address)         # the board's own view, independent of the UART
+    swd_check(results, "board ARMED on the edge frame (SWD)", arm_state,
+              lambda state: state.last_to_state == STATE_ARMED and state.armed_at_frame == state.first_armed_frame)
+    arm_wait = streamer.wait_board_state(True, ARM_WAIT_MAX_S, since=arm_time)
+    results.check("HEARTBEAT reports ARMED within %.1f s (reporting path, HEARTBEAT is 1 Hz)" % ARM_EXPECTED_S,
                   arm_wait is not None and arm_wait <= ARM_EXPECTED_S,
-                  "armed after %s" % ("never (%d s)" % ARM_WAIT_MAX_S if arm_wait is None else "%.1f s" % arm_wait))
+                  "armed after %s; %s" % ("never (%d s)" % ARM_WAIT_MAX_S if arm_wait is None else "%.1f s" % arm_wait,
+                                          describe_state(arm_state)))
     if arm_wait is None:
         print("    board STATUSTEXT: %s" % (streamer.status_texts[-3:] or "none"))
         streamer.armed = False
@@ -241,9 +286,15 @@ def check_motors_armed(streamer, openocd_args, sample_address, tol_us, results):
     results.check("armed motor widths within %.0f us" % tol_us, worst <= tol_us,
                   "worst error %.1f us, measured %s" % (worst, {p: round(pulses[p], 1) for p in MOTOR_PINS}))
     print("    motor index -> pin: %s" % {i + 1: pin for i, pin in mapping.items()})
+    disarm_time = time.monotonic()
     streamer.armed = False
     streamer.motors = [1300, 1300, 1300]
-    results.check("board reports DISARMED after a disarmed frame", streamer.wait_board_state(False, 3.0) is not None)
+    time.sleep(SWD_SETTLE_S)
+    disarm_state = read_board_state(openocd_args, diag_address)
+    swd_check(results, "board DISARMED after a disarmed frame (SWD)", disarm_state,
+              lambda state: state.last_to_state == STATE_DISARMED)
+    results.check("HEARTBEAT reports DISARMED after a disarmed frame",
+                  streamer.wait_board_state(False, 3.0, since=disarm_time) is not None, describe_state(disarm_state))
     pulses, _ = settle_and_read(openocd_args, sample_address)
     idle_us = MOTOR_MIN_US / ONESHOT125_DIVIDER
     worst_idle = max(abs(pulses[pin] - idle_us) for pin in MOTOR_PINS)
@@ -252,7 +303,7 @@ def check_motors_armed(streamer, openocd_args, sample_address, tol_us, results):
     return True
 
 
-def check_failsafe(streamer, openocd_args, sample_address, tol_us, results):
+def check_failsafe(streamer, openocd_args, sample_address, diag_address, tol_us, results):
     """Step 4: armed, then no frames: motors go to min_command, HEARTBEAT shows failsafe (not armed flag)."""
     print("Step 4: link loss while armed")
     streamer.armed = False
@@ -269,6 +320,9 @@ def check_failsafe(streamer, openocd_args, sample_address, tol_us, results):
     idle_us = MOTOR_MIN_US / ONESHOT125_DIVIDER
     worst_idle = max(abs(pulses[pin] - idle_us) for pin in MOTOR_PINS)
     results.check("motors at min_command 1.2 s after the last frame", worst_idle <= tol_us, "worst %.1f us" % worst_idle)
+    failsafe_state = read_board_state(openocd_args, diag_address)
+    swd_check(results, "board in FAILSAFE after the link loss while armed (SWD)", failsafe_state,
+              lambda state: state.last_to_state == STATE_FAILSAFE)
     streamer.armed = False               # leave the board disarmed: the next frames are disarmed
     streamer.motors = [mav.PULSE_IGNORE] * MOTOR_COUNT
     streamer.paused = False
@@ -296,6 +350,7 @@ def main():
     if not verify_firmware(openocd_args, args.elf):
         raise SystemExit("flash differs from %s: flash that firmware first (symbol addresses would be wrong)" % args.elf)
     sample_address = find_symbol_address(args.nm, args.elf, "pwmCompleteOneshotMotorUpdate")
+    diag_address = find_symbol_address(args.nm, args.elf, "servoDriverDiag")
     fd = serial_io.open_port(args.port, args.baud)
     streamer = FrameStreamer(fd)
     streamer.start()
@@ -307,8 +362,8 @@ def main():
         check_servos(streamer, openocd_args, sample_address, args.tol_us, results)
         check_motors_disarmed(streamer, openocd_args, sample_address, args.tol_us, results)
         if args.armed:
-            if check_motors_armed(streamer, openocd_args, sample_address, args.tol_us, results):
-                check_failsafe(streamer, openocd_args, sample_address, args.tol_us, results)
+            if check_motors_armed(streamer, openocd_args, sample_address, diag_address, args.tol_us, results):
+                check_failsafe(streamer, openocd_args, sample_address, diag_address, args.tol_us, results)
     finally:
         # leave the board disarmed, then silence
         streamer.armed = False
