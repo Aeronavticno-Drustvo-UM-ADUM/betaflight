@@ -46,3 +46,6 @@ Firmware `2fa92b817` (D8, master is primary), flashed by ST-Link, UART1 on FTDI 
 | Reset, 2 disarmed frames, then ARMED (edge while `NOT READY: LINK`) | arms; `armEdges` 1, `edgesNotReady` 1, `lastNotReadyReason` 0 (LINK), cause `ARMED_FRAME`; disarm follows |
 
 `BOOT_GRACE` was not seen: the link-ready check (5 frames) comes first and the grace time had passed by the time 5 frames arrived. Readiness steps were run with an ad-hoc script, not yet part of `hw_output_check.py`.
+
+## EC firmware on the board (2026-11-13 evening)
+ELF from `34da60a09` (D8 + EC: unknown-id frames counted in `errors_comm`, not a link error) flashed by ST-Link, verified. `hw_output_check.py --armed --props-off`: PASS (1 run, 0 failed), incl. FAILSAFE on link loss over SWD.

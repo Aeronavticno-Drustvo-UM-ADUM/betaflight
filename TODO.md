@@ -30,6 +30,7 @@ Open design decisions and risks found on 2026-11-11 while planning the SITL test
 | V | HW tests: armed motor widths, disarm, failsafe on link loss **done 2026-11-13** (`hw_output_check.py` steps 3-4). D8 readiness on the board **done 2026-11-13** (ad-hoc script; not yet in `hw_output_check.py`). Not run: 200 Hz motor / 50 Hz servo timing, IWDG, `save` vs IWDG, UART re-init, GPS, fault injection. | Hardware behaviour of C, L, A, B, H partly unverified. | Run on the bench. | open |
 | W | int32 timestamp windows (stale > 35.8 min: false rejects, silent reject text, recovery stall). | | | **fixed 2026-11-13** (`docs/fix_W_timestamps.md`, `test/test_06_time_wrap.py`), verified on the board. |
 | X | A valid frame with an unknown message id counted as a CRC error (readiness `LINK` for 1 s). | Any extra master message blocked arming. | Do not count unknown ids. | **fixed 2026-11-13** (`servo_driver.c` parse loop, `docs/arming_safety.md` sections 10, 12; `test_05` s5). |
+| EC | After X, unknown-id CRC failures were not counted in `errors_comm` (garbage/noise invisible). | Diagnostic counter only. | Count them, keep them out of readiness. | **fixed 2026-11-13** (`34da60a09`, owner approved): counted in `errors_comm`, not a link error. test_05 s5; INAV SITL 13/17 pass; flashed, `hw_output_check` PASS. |
 
 Decided (2026-11-11, owner):
 - Arming is controlled by `ADUM_AUX_CHANNELS` only; incoming HEARTBEAT does not keep the board armed.

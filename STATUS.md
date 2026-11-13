@@ -5,11 +5,17 @@ Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-1
 ## Arming rule D8 (2026-11-13)
 Owner: the master is primary. The board never refuses an ARMED frame; readiness P1-P5 is reported only (HEARTBEAT `STANDBY` ready / `UNINIT` not ready, STATUSTEXT `NOT READY: <code>` at 1 Hz); unknown message ids are ignored. Master requirements for INAV: `docs/arming_safety.md` section 11; message id rules section 12; accepted ground cases section 13.
 - SITL: full suite 310 checks, 0 failed, 1 known, 0 restarts (test_05 136, test_06 29).
-- Board: not flashed with D8 yet (`hw_output_check.py --armed` run pending, needs the owner at the bench).
-- INAV SITL suite (`../inav/src/test/adum/sitl/`): tests 12 (arm rejected), 09, 10, 02, 15, 17, 18 still encode the old reject / STANDBY behaviour.
+- Board: D8 verified (see below); EC fix flashed on top (2026-11-13 evening).
+- INAV side of D8 done (INAV `d83e80ef9`: arming flag `SATELLITE`); INAV SITL suite updated, 19 tests, 482 checks, 0 failed.
 
 ## Board D8 check: done (2026-11-13)
-Firmware `2fa92b817` on the board. `hw_output_check.py --armed --props-off` 3/3 PASS (18/18). Readiness on the board: `UNINIT` + `NOT READY: LINK` after reset, `STANDBY` once AUX frames flow, ARMED edge while not ready arms (`edgesNotReady` +1, reason LINK). Details `docs/hw_bench_report.md` "D8 board check". Readiness steps not yet in `hw_output_check.py` (optional, one `sonnet` agent). Next: INAV D8 (owner).
+Firmware `2fa92b817` on the board. `hw_output_check.py --armed --props-off` 3/3 PASS (18/18). Readiness on the board: `UNINIT` + `NOT READY: LINK` after reset, `STANDBY` once AUX frames flow, ARMED edge while not ready arms (`edgesNotReady` +1, reason LINK). Details `docs/hw_bench_report.md` "D8 board check". Readiness steps not yet in `hw_output_check.py` (optional, one `sonnet` agent).
+
+## Fix EC (2026-11-13)
+Since fix X, CRC failures of unknown-id frames were not counted at all, so `errors_comm` no longer showed garbage/noise (found by INAV SITL tests 13, 17). `34da60a09`: all errors counted in `errors_comm`; only known-id errors are link errors for readiness. SITL test_05 137/0 (new check: 30 unknown-id frames -> `errors_comm` +30, `STANDBY` kept). Flashed on the board (ELF from `34da60a09`), `hw_output_check.py --armed --props-off` PASS (1 run).
+
+## Next session: INAV EVIS_FC <-> board
+INAV EVIS_FC (F405) is flashed with the satellite interface (`adum_sat_uart = 3`). The owner wires EVIS UART3 to the board's UART1 connector (FTDI channel B unplugged from it). Steps and wiring: `../inav/STATUS.md` "Next session". With EVIS on UART1, `hw_output_check.py` (FTDI as fake master) needs the FTDI back on the connector.
 
 ## Last results (2026-11-11)
 | Item | Result |
@@ -42,6 +48,6 @@ Setup, details also in the INAV repo memory/STATUS:
 - Bench test plan: IWDG reset/brownout while armed, `save` vs IWDG, 200 Hz motor pulse on scope, ESC on failsafe/recovery, UART noise/cable pull/re-init, P5, GPS M10.
 - SITL phase 2: GPS faults, TX buffer saturation, configurator access while armed.
 - SITL phase 3: soak, timer wrap, reboot, EEPROM.
-- Open owner decisions (`TODO.md`): E default serial config, G TX drop counter, J IWDG vs `bl`. M, N, O, P, X closed by D8 (2026-11-13).
-- INAV <-> satellite SITL suite: INAV repo `src/test/adum/sitl/`, report `docs/adum/satellite_test_report.md` (18 tests, 0 firmware spec failures, findings F1-F10).
+- Open owner decisions (`TODO.md`): E default serial config, G TX drop counter, J IWDG vs `bl`. M, N, O, P, X closed by D8 (2026-11-13); EC fixed (2026-11-13).
+- INAV <-> satellite SITL suite: INAV repo `src/test/adum/sitl/`, report `docs/adum/satellite_test_report.md` (findings F1-F10); now 19 tests, 482 checks, 0 failed (2026-11-13).
 - Pushed through `06f7c2e43`; later commits local (not pushed).
