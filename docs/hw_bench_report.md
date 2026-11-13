@@ -61,4 +61,4 @@ INAV EVIS_FC (F405, `USE_ADUM_SATELLITE`) UART3 -> board UART1 (PB6/PB7), 115200
 | Arm / disarm (MSP RC to INAV) | state 0->1 cause `ARMED_FRAME` (`edgesNotReady` 0), 1->0 cause `DISARM_FRAME` |
 | INAV TX wire pulled ~12 s while armed | 1->2 FAILSAFE cause `LINK_TIMEOUT`; INAV stays armed; wire back: 2->1 `FAILSAFE_RECOVER`, `newSessions` 2; 3 parse errors from the plugging |
 
-Failsafe delay not measured exactly on this link (counters at ~0.4 s sampling: ~0.5-0.7 s). Output pins not read on this link. Unexplained single EVIS_FC reboot during one SWD halt of the board (board not reset); INAV TODO EVIS-RST.
+Failsafe delay measured exactly later (last AUX frame -> FAILSAFE, `lastAuxUs` vs `lastTransitionMs` over SWD): 500.0 / 499.4 / 503.3 ms, and 504.5 / 503.2 / 503.4 ms in INAV `hw/manual/test_01_link_pull.py`; motors 135 -> 125 us (CCR). Output pins not read on this link. Unexplained single EVIS_FC reboot during one SWD halt of the board (board not reset); INAV TODO EVIS-RST.

@@ -17,6 +17,9 @@ Since fix X, CRC failures of unknown-id frames were not counted at all, so `erro
 ## INAV EVIS_FC <-> board: passed (2026-11-13 night)
 EVIS UART3 wired to the board's UART1 (FTDI channel B unplugged). Link, readiness (`UNINIT`/`BOOT_GRACE` -> `STANDBY`), INAV arm block, arm/disarm and FAILSAFE on an INAV TX wire pull with INAV staying armed: all as specified. Details `docs/hw_bench_report.md` "INAV master on the board", INAV `STATUS.md`. Open: exact failsafe delay on this link (INAV TODO S4-fs), one unexplained EVIS reboot (EVIS-RST). With EVIS on UART1, `hw_output_check.py` (FTDI as fake master) needs the FTDI back on the connector.
 
+## Hardware test suite `test/hw/` (2026-11-13 night)
+Rerunnable satellite standalone suite (FTDI fake master + SWD): `python3 test/hw/run_hw_tests.py [NAME] [--props-off]`, README `test/hw/README.md`. Tests hw_01 outputs, hw_02 readiness (the D8 board-check steps), hw_03 arm/failsafe (exact failsafe delay via `lastAuxUs`, 3 link losses, recovery): written, **not run yet** (FTDI must go back onto UART1, EVIS wires off). Open: hw_04 error frames (EC). The combined INAV + board suites live in INAV `src/test/adum/hw/` and pass (failsafe delay on the INAV link 499.4-504.5 ms).
+
 ## Last results (2026-11-11)
 | Item | Result |
 |---|---|
