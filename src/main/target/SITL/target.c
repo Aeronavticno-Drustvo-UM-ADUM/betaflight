@@ -201,19 +201,13 @@ static void* udpThread(void* data) {
 static void* tcpThread(void* data) {
     UNUSED(data);
 
-    dyad_init();
-    dyad_setTickInterval(0.2f);
-#ifdef USE_SERVO_DRIVER
-    dyad_setUpdateTimeout(0.001f);   // test: writes from the scheduler thread must not wait up to 0.5 s for the dyad thread
-#else
-    dyad_setUpdateTimeout(0.5f);
-#endif
+    tcpDyadInit();
 
     while (workerRunning) {
-        dyad_update();
+        tcpDyadUpdate();
     }
 
-    dyad_shutdown();
+    tcpDyadShutdown();
     printf("tcpThread end!!\n");
     return NULL;
 }

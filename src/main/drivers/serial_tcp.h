@@ -47,6 +47,11 @@ serialPort_t *serTcpOpen(int id, serialReceiveCallbackPtr rxCallback, void *rxCa
 void tcpDataIn(tcpPort_t *instance, uint8_t* ch, int size);
 void tcpDataOut(tcpPort_t *instance);
 
+// dyad access for the tcp worker thread (all dyad calls are serialised by one lock)
+void tcpDyadInit(void);
+void tcpDyadUpdate(void);
+void tcpDyadShutdown(void);
+
 bool tcpIsStart(void);
 bool* tcpGetUsed(void);
 tcpPort_t* tcpGetPool(void);

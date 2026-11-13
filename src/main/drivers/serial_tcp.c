@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <pthread.h>
+#include <unistd.h>
 
 #include "platform.h"
 
@@ -44,6 +46,38 @@ static const struct serialPortVTable tcpVTable; // Forward
 static tcpPort_t tcpSerialPorts[SERIAL_PORT_COUNT];
 static bool tcpPortInitialized[SERIAL_PORT_COUNT];
 static bool tcpStart = false;
+
+// dyad is not thread-safe: every dyad call, from the main thread or the tcp worker, runs under dyadLock.
+// Callbacks (onAccept/onData/onClose) run inside dyad_update, so they already hold it and must not lock again.
+// Lock order: dyadLock first, then txLock or rxLock. Never take dyadLock while holding txLock/rxLock.
+static pthread_mutex_t dyadLock = PTHREAD_MUTEX_INITIALIZER;
+
+// One worker iteration: update dyad under the lock, then sleep unlocked so the main thread can get in.
+void tcpDyadUpdate(void)
+{
+    pthread_mutex_lock(&dyadLock);
+    dyad_update();
+    pthread_mutex_unlock(&dyadLock);
+    usleep(1000);
+}
+
+// Worker thread init/shutdown of the dyad library itself.
+void tcpDyadInit(void)
+{
+    pthread_mutex_lock(&dyadLock);
+    dyad_init();
+    dyad_setTickInterval(0.2f);
+    dyad_setUpdateTimeout(0.001f);   // short select timeout: the lock is held during dyad_update
+    pthread_mutex_unlock(&dyadLock);
+}
+
+void tcpDyadShutdown(void)
+{
+    pthread_mutex_lock(&dyadLock);
+    dyad_shutdown();
+    pthread_mutex_unlock(&dyadLock);
+}
+
 bool tcpIsStart(void) {
     return tcpStart;
 }
@@ -102,6 +136,7 @@ static tcpPort_t* tcpReconfigure(tcpPort_t *s, int id)
     s->clientCount = 0;
     s->id = id;
     s->conn = NULL;
+    pthread_mutex_lock(&dyadLock);
     s->serv = dyad_newStream();
     dyad_setNoDelay(s->serv, 1);
     dyad_addListener(s->serv, DYAD_EVENT_ACCEPT, onAccept, s);
@@ -111,6 +146,7 @@ static tcpPort_t* tcpReconfigure(tcpPort_t *s, int id)
     } else {
         fprintf(stderr, "bind port %u for UART%u failed!!\n", (unsigned)BASE_PORT + id + 1, (unsigned)id + 1);
     }
+    pthread_mutex_unlock(&dyadLock);
     return s;
 }
 
@@ -223,7 +259,11 @@ void tcpWrite(serialPort_t *instance, uint8_t ch)
 void tcpDataOut(tcpPort_t *instance)
 {
     tcpPort_t *s = (tcpPort_t *)instance;
-    if (s->conn == NULL) return;
+    pthread_mutex_lock(&dyadLock);
+    if (s->conn == NULL) {
+        pthread_mutex_unlock(&dyadLock);
+        return;
+    }
     pthread_mutex_lock(&s->txLock);
 
     if (s->port.txBufferHead < s->port.txBufferTail) {
@@ -238,6 +278,7 @@ void tcpDataOut(tcpPort_t *instance)
     s->port.txBufferTail = s->port.txBufferHead;
 
     pthread_mutex_unlock(&s->txLock);
+    pthread_mutex_unlock(&dyadLock);
 }
 
 void tcpDataIn(tcpPort_t *instance, uint8_t* ch, int size)
