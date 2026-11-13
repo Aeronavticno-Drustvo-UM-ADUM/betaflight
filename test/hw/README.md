@@ -10,6 +10,7 @@ preflight detects it (auxFrames rising while the FTDI is silent).
 - Run dir: `test/hw/runs/<time>_<test>_r<k>/` (git-ignored) with `output.log` and `summary.json` (same format as the SITL tests).
 - Tests that arm set `ARMS = True`; the runner then requires `--props-off` (propellers removed).
 - Exit codes: 0 passed, 1 check/file failed, 2 setup impossible.
+- `test_hw_04_error_frames.py`: garbage, unknown-id and bad-CRC frames, disarmed and armed (arming_safety.md 4, 5, 12).
 - `common/sat_bench.py`: `preflight`, `start_master`, `diag`, `motor_pulses_us`, `servo_pulses_us`,
   `failsafe_delay_ms`, `wait_until`. `common/report.py`: `Report`. The hardware code itself lives in `test/tools/`.
 - Flash the firmware first (`obj/main/betaflight_SATELLITEBOARD.elf`); the preflight verifies it over SWD.
