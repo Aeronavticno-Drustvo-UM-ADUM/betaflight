@@ -8,13 +8,8 @@ Owner: the master is primary. The board never refuses an ARMED frame; readiness 
 - Board: not flashed with D8 yet (`hw_output_check.py --armed` run pending, needs the owner at the bench).
 - INAV SITL suite (`../inav/src/test/adum/sitl/`): tests 12 (arm rejected), 09, 10, 02, 15, 17, 18 still encode the old reject / STANDBY behaviour.
 
-## Next session: board D8 check (owner at the bench, props off)
-Board still runs the pre-D8 firmware. Do not run hardware checks while an agent rebuilds the ELF.
-1. Build: `docker run --rm --entrypoint make -v "$PWD":/src -w /src inav-build TARGET=SATELLITEBOARD GCC_REQUIRED_VERSION=10.3.1 -j"$(nproc)"`.
-2. Flash: `openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c "program obj/main/betaflight_SATELLITEBOARD.elf verify reset exit"`.
-3. Run: `python3 test/tools/hw_output_check.py --port /dev/serial/by-id/usb-FTDI_Dual_RS232-HS-if01-port0 --armed --props-off` (3 runs; was 18/18 before D8). SWD: `test/tools/read_diag.py` (fields renamed: `edgesNotReady`, `lastNotReadyReason`, `notReadyTexts*`).
-4. Not covered by `hw_output_check.py` yet, check on the board: after power-up HEARTBEAT `UNINIT` + `NOT READY: LINK`/`BOOT_GRACE`, then `STANDBY` once AUX frames flow; an ARMED frame during `UNINIT` arms (`edgesNotReady` +1). Either a short manual check or one `sonnet` agent adding a readiness step to `hw_output_check.py` (decide at session start).
-5. Record results here and in `docs/hw_bench_report.md`; then INAV D8 is the owner's.
+## Board D8 check: done (2026-11-13)
+Firmware `2fa92b817` on the board. `hw_output_check.py --armed --props-off` 3/3 PASS (18/18). Readiness on the board: `UNINIT` + `NOT READY: LINK` after reset, `STANDBY` once AUX frames flow, ARMED edge while not ready arms (`edgesNotReady` +1, reason LINK). Details `docs/hw_bench_report.md` "D8 board check". Readiness steps not yet in `hw_output_check.py` (optional, one `sonnet` agent). Next: INAV D8 (owner).
 
 ## Last results (2026-11-11)
 | Item | Result |

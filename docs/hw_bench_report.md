@@ -33,3 +33,16 @@ Reading of the code (`servo_driver.c` `servoDriverHandleAux`, around line 313-34
 - `openocd -c init -c "mdb ..."` is non-halting; `halt` + breakpoint is needed for OneShot CCRs. Run only one OpenOCD at a time (kill stray daemons: `pkill openocd`).
 - RCC_CSR reset flags stayed clear during the arm tests: no watchdog or other resets.
 - Symbol addresses come from `obj/main/betaflight_SATELLITEBOARD.elf` with `tools/gcc-arm-none-eabi-9-2020-q2-update/bin/arm-none-eabi-nm` (statics carry `.lto_priv.N` suffixes).
+
+## D8 board check (2026-11-13)
+Firmware `2fa92b817` (D8, master is primary), flashed by ST-Link, UART1 on FTDI channel B, props off.
+
+| Check | Result |
+|---|---|
+| `hw_output_check.py --armed --props-off`, 3 runs | PASS 3/3, 18/18 each; HEARTBEAT ARMED after 0.4 s, armed motor widths exact, disarm and failsafe on link loss (SWD) |
+| After reset, no frames | HEARTBEAT `UNINIT` + `NOT READY: LINK` at 1 Hz |
+| Disarmed AUX frames | `STANDBY` from the next HEARTBEAT (~1 s), NOT READY texts stop |
+| Reset, ARMED from the first frame | arms (cause `FIRST_FRAME_ARMED`, no edge counted, as coded) |
+| Reset, 2 disarmed frames, then ARMED (edge while `NOT READY: LINK`) | arms; `armEdges` 1, `edgesNotReady` 1, `lastNotReadyReason` 0 (LINK), cause `ARMED_FRAME`; disarm follows |
+
+`BOOT_GRACE` was not seen: the link-ready check (5 frames) comes first and the grace time had passed by the time 5 frames arrived. Readiness steps were run with an ad-hoc script, not yet part of `hw_output_check.py`.

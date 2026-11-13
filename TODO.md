@@ -3,7 +3,7 @@
 Open design decisions and risks found on 2026-11-11 while planning the SITL test suite. None of them is decided yet.
 **Agents: before changing firmware behaviour in the areas below, or when a task touches them, ask the owner for the decision first. Do not pick a solution yourself.**
 
-**D8 (owner, 2026-11-13): the master is primary.** Every ARMED frame arms the board, ready or not; readiness (P1-P5) is only reported (HEARTBEAT STANDBY/UNINIT, `NOT READY: <code>`); the master blocks its own arming on it. Only total link loss stops the motors. Spec: `docs/arming_safety.md` (top, sections 3, 4, 11-13). Closes M, N, O, P, X and the reject path of F.
+**D8 (owner, 2026-11-13): the master is primary.** Every ARMED frame arms the board, ready or not; readiness (P1-P5) is only reported (HEARTBEAT STANDBY/UNINIT, `NOT READY: <code>`); the master blocks its own arming on it. Only total link loss stops the motors. Spec: `docs/arming_safety.md` (top, sections 3, 4, 11-13). Closes M, N, O, P, X and the reject path of F. **Verified on the board 2026-11-13** (`hw_output_check.py --armed` 3/3, 18/18; readiness UNINIT/LINK -> STANDBY; arm edge while not ready arms; `docs/hw_bench_report.md` "D8 board check").
 
 | # | Risk / open question | Effect | Proposed fix (not approved) | Status |
 |---|---|---|---|---|
@@ -27,7 +27,7 @@ Open design decisions and risks found on 2026-11-11 while planning the SITL test
 | R | One replayed frame with an old sequence number counts a gap of up to 255 -> drop_rate_comm ~96 %. INAV SITL test 09 (F10). | Misleading link quality. | Ignore backward sequence jumps. | open, low priority |
 | T | Hardware: arm edge seemed not honoured (bench finding H1). | Board lagged 4-15 s in reporting armed, no STATUSTEXT. | - | **closed 2026-11-13: test-rig artefact.** Diagnostic counters (`servoDriverDiag`) showed the board arms on the first ARMED frame every time; the WCH USB quad serial (cdc_acm) delayed board->host data by 4-15 s. With an FTDI adapter: 3/3 PASS, armed after 0.4 s. |
 | U | HW check covers timer registers only (CCER, GPIO mode, PCB not checked). | A dead pin with correct CCR passes. | Add CCER and GPIO CRL/CRH reads to `hw_output_check.py`; stage 2: logic analyzer on the pins. | open: next |
-| V | HW tests: armed motor widths, disarm, failsafe on link loss **done 2026-11-13** (`hw_output_check.py` steps 3-4). Not run: 200 Hz motor / 50 Hz servo timing, IWDG, `save` vs IWDG, UART re-init, GPS, fault injection. | Hardware behaviour of C, L, A, B, H partly unverified. | Run on the bench. | open |
+| V | HW tests: armed motor widths, disarm, failsafe on link loss **done 2026-11-13** (`hw_output_check.py` steps 3-4). D8 readiness on the board **done 2026-11-13** (ad-hoc script; not yet in `hw_output_check.py`). Not run: 200 Hz motor / 50 Hz servo timing, IWDG, `save` vs IWDG, UART re-init, GPS, fault injection. | Hardware behaviour of C, L, A, B, H partly unverified. | Run on the bench. | open |
 | W | int32 timestamp windows (stale > 35.8 min: false rejects, silent reject text, recovery stall). | | | **fixed 2026-11-13** (`docs/fix_W_timestamps.md`, `test/test_06_time_wrap.py`), verified on the board. |
 | X | A valid frame with an unknown message id counted as a CRC error (readiness `LINK` for 1 s). | Any extra master message blocked arming. | Do not count unknown ids. | **fixed 2026-11-13** (`servo_driver.c` parse loop, `docs/arming_safety.md` sections 10, 12; `test_05` s5). |
 
