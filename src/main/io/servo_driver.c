@@ -66,7 +66,6 @@
 #define SERVO_DRIVER_LINK_READY_FRAMES  5       // P1: consecutive valid AUX frames
 #define SERVO_DRIVER_LINK_CRC_QUIET_US  1000000 // P1: no CRC error for this long
 #define SERVO_DRIVER_CONFIG_QUIET_US    2000000 // P4: no MSP write / motor test for this long
-#define SERVO_DRIVER_REJECT_TEXT_US     500000  // ARM REJECTED text at most 2 Hz
 #define SERVO_DRIVER_LOW_RATE_HZ        20      // below this AUX frame rate: warning
 #define SERVO_DRIVER_LOW_RATE_TEXT_US   10000000
 #define SERVO_DRIVER_PARSER_RESET_US    1000000 // no valid frame for this long: reset the parser, every 1 s
@@ -88,19 +87,20 @@ typedef enum {
     SD_FAILSAFE,
 } servoDriverState_e;
 
+// Readiness to arm, reported to the master (HEARTBEAT, STATUSTEXT). It never blocks an ARMED frame: the master decides.
 typedef enum {
-    REJECT_LINK_NOT_READY = 0,
-    REJECT_BOOT_GRACE,
-    REJECT_MOTOR_CONFIG,
-    REJECT_CONFIG_ACTIVE,
-    REJECT_NONE,
-} rejectReason_e;
+    NOT_READY_LINK = 0,
+    NOT_READY_BOOT_GRACE,
+    NOT_READY_MOTOR_CONFIG,
+    NOT_READY_CONFIG_ACTIVE,
+    READY,
+} readiness_e;
 
-static const char *const rejectText[] = {
-    [REJECT_LINK_NOT_READY] = "ARM REJECTED: LINK_NOT_READY",
-    [REJECT_BOOT_GRACE]     = "ARM REJECTED: BOOT_GRACE",
-    [REJECT_MOTOR_CONFIG]   = "ARM REJECTED: MOTOR_CONFIG",
-    [REJECT_CONFIG_ACTIVE]  = "ARM REJECTED: CONFIG_ACTIVE",
+static const char *const notReadyText[] = {
+    [NOT_READY_LINK]          = "NOT READY: LINK",
+    [NOT_READY_BOOT_GRACE]    = "NOT READY: BOOT_GRACE",
+    [NOT_READY_MOTOR_CONFIG]  = "NOT READY: MOTOR_CONFIG",
+    [NOT_READY_CONFIG_ACTIVE] = "NOT READY: CONFIG_ACTIVE",
 };
 
 static serialPort_t *mavlinkPort;
@@ -122,8 +122,6 @@ static bool haveConfigActivity;
 static bool saveBusy;
 
 static timeUs_t lastTickUs;     // 1 Hz: HEARTBEAT, SYS_STATUS, window statistics
-static timeUs_t lastRejectTextUs;
-static bool haveRejectText;
 static timeUs_t lastLowRateTextUs;
 static bool haveLowRateText;
 static timeUs_t lastParserResetUs;
@@ -144,12 +142,12 @@ static uint8_t lastSeq;
 
 #ifdef USE_SERVO_DRIVER_DIAG
 // Diagnostic counters, read over SWD (test/tools/read_diag.py, one "mdw" of the whole struct). Wrap freely.
-// Word layout = field order below: identity 0-2, frames 3-6, arm edges and rejects 7-11, mirrors 12-13, transitions 14-19, timing 20-23.
+// Word layout = field order below: identity 0-2, frames 3-6, arm edges and readiness 7-11, mirrors 12-13, transitions 14-19, timing 20-23.
 // bootCount: F1 has no no-init RAM section (startup clears .bss), so it is always 1 here.
 typedef enum {
     DIAG_CAUSE_NONE = 0,
     DIAG_CAUSE_FIRST_FRAME_ARMED,   // first frame of a session says ARMED
-    DIAG_CAUSE_EDGE_PASS,           // observed arm edge passed the checks
+    DIAG_CAUSE_ARMED_FRAME,         // armed frame within a session (arm edge)
     DIAG_CAUSE_DISARM_FRAME,        // frame says DISARMED while armed
     DIAG_CAUSE_LINK_TIMEOUT,        // link timeout while armed -> FAILSAFE
     DIAG_CAUSE_FAILSAFE_RECOVER,    // frame after FAILSAFE
@@ -163,11 +161,11 @@ typedef struct {
     uint32_t auxArmedFrames;
     uint32_t auxDisarmedFrames;
     uint32_t newSessions;
-    uint32_t armEdges;              // observed arm edges that went through the checks
-    uint32_t edgeRejects;
-    uint32_t lastRejectReason;      // rejectReason_e
-    uint32_t rejectTextsSent;
-    uint32_t rejectTextsDropped;    // servoDriverSend failed for the reject text
+    uint32_t armEdges;              // observed arm edges (DISARMED -> ARMED within a session)
+    uint32_t edgesNotReady;         // arm edges while not ready (armed anyway)
+    uint32_t lastNotReadyReason;    // readiness_e at the last such edge
+    uint32_t notReadyTextsSent;
+    uint32_t notReadyTextsDropped;  // servoDriverSend failed for the NOT READY text
     uint32_t txDrops;               // mirror
     uint32_t parseErrors;           // mirror of errorsComm
     uint32_t stateChanges;
@@ -217,23 +215,23 @@ static void diagNoteAuxFrame(bool armedFrame, bool newSession, bool previousFram
     }
 }
 
-// Counts one arm edge that went through the checks, and its result
-static void diagNoteArmEdge(rejectReason_e reason)
+// Counts one arm edge and whether the board was ready at that moment
+static void diagNoteArmEdge(readiness_e readiness)
 {
     servoDriverDiag.armEdges++;
-    if (reason != REJECT_NONE) {
-        servoDriverDiag.edgeRejects++;
-        servoDriverDiag.lastRejectReason = reason;
+    if (readiness != READY) {
+        servoDriverDiag.edgesNotReady++;
+        servoDriverDiag.lastNotReadyReason = readiness;
     }
 }
 
-// Counts a reject text that was sent or dropped
-static void diagNoteRejectText(bool sent)
+// Counts a NOT READY text that was sent or dropped
+static void diagNoteNotReadyText(bool sent)
 {
     if (sent) {
-        servoDriverDiag.rejectTextsSent++;
+        servoDriverDiag.notReadyTextsSent++;
     } else {
-        servoDriverDiag.rejectTextsDropped++;
+        servoDriverDiag.notReadyTextsDropped++;
     }
 }
 
@@ -285,15 +283,15 @@ typedef int servoDriverDiagCause_e;     // cause is ignored without the diagnost
 enum {
     DIAG_CAUSE_NONE,
     DIAG_CAUSE_FIRST_FRAME_ARMED,
-    DIAG_CAUSE_EDGE_PASS,
+    DIAG_CAUSE_ARMED_FRAME,
     DIAG_CAUSE_DISARM_FRAME,
     DIAG_CAUSE_LINK_TIMEOUT,
     DIAG_CAUSE_FAILSAFE_RECOVER,
 };
 #define diagInit()
 #define diagNoteAuxFrame(armedFrame, newSession, previousFrameArmed)
-#define diagNoteArmEdge(reason)
-#define diagNoteRejectText(sent)
+#define diagNoteArmEdge(readiness)
+#define diagNoteNotReadyText(sent) UNUSED(sent)
 #define diagNoteTransition(from, to, cause)
 #define diagNoteCycleStart(currentTimeUs)
 #define diagNoteRxByte()
@@ -364,10 +362,36 @@ static void servoDriverSetState(servoDriverState_e newState, servoDriverDiagCaus
     }
 }
 
-static void servoDriverSendHeartbeat(void)
+// Own-health checks P1-P5 (docs/arming_safety.md section 4): the first failing one, or READY
+static readiness_e servoDriverReadiness(void)
+{
+    if (!sessionActive
+        || validFrames < SERVO_DRIVER_LINK_READY_FRAMES
+        || haveCrcError) {
+        return NOT_READY_LINK;
+    }
+    if (!bootGraceDone) {
+        return NOT_READY_BOOT_GRACE;
+    }
+    if (motorConfig()->dev.motorPwmProtocol == PWM_TYPE_DISABLED || !motorIsEnabled()) {
+        return NOT_READY_MOTOR_CONFIG;
+    }
+    if (
+#ifdef USE_CLI
+        cliMode ||
+#endif
+        saveBusy
+        || haveConfigActivity) {
+        return NOT_READY_CONFIG_ACTIVE;
+    }
+    return READY;
+}
+
+// HEARTBEAT system_status: DISARMED reports readiness (STANDBY ready, UNINIT not ready), ARMED ACTIVE, FAILSAFE CRITICAL
+static void servoDriverSendHeartbeat(readiness_e readiness)
 {
     uint8_t baseMode = 0;
-    uint8_t systemStatus = MAV_STATE_STANDBY;
+    uint8_t systemStatus = (readiness == READY) ? MAV_STATE_STANDBY : MAV_STATE_UNINIT;
     if (state == SD_ARMED) {
         baseMode = MAV_MODE_FLAG_SAFETY_ARMED;
         systemStatus = MAV_STATE_ACTIVE;
@@ -445,30 +469,6 @@ static void servoDriverSendGpsPvt(const gpsPvt_t *pvt)
     servoDriverSend(&msg);
 }
 
-// Own-health checks P1-P5 of the arm edge (docs/arming_safety.md section 4)
-static rejectReason_e servoDriverCheckArmEdge(void)
-{
-    if (validFrames < SERVO_DRIVER_LINK_READY_FRAMES
-        || haveCrcError) {
-        return REJECT_LINK_NOT_READY;
-    }
-    if (!bootGraceDone) {
-        return REJECT_BOOT_GRACE;
-    }
-    if (motorConfig()->dev.motorPwmProtocol == PWM_TYPE_DISABLED || !motorIsEnabled()) {
-        return REJECT_MOTOR_CONFIG;
-    }
-    if (
-#ifdef USE_CLI
-        cliMode ||
-#endif
-        saveBusy
-        || haveConfigActivity) {
-        return REJECT_CONFIG_ACTIVE;
-    }
-    return REJECT_NONE;
-}
-
 static void servoDriverHandleAux(const mavlink_message_t *msg, timeUs_t currentTimeUs)
 {
     mavlink_adum_aux_channels_t aux;
@@ -494,22 +494,16 @@ static void servoDriverHandleAux(const mavlink_message_t *msg, timeUs_t currentT
 
     switch (state) {
     case SD_DISARMED:
+        // The master is primary: every ARMED frame arms, whatever the readiness
         if (armedFrame) {
             if (newSession) {
-                // First frame of a link session says ARMED (reboot or link recovered while the master was armed): the master is primary, no checks
+                // reboot or link recovered while the master was armed
                 servoDriverSetState(SD_ARMED, DIAG_CAUSE_FIRST_FRAME_ARMED);
-            } else if (!prevFrameArmed) {
-                // Observed arm edge: own-health checks. On reject the board stays disarmed until the next edge.
-                const rejectReason_e reason = servoDriverCheckArmEdge();
-                diagNoteArmEdge(reason);
-                if (reason == REJECT_NONE) {
-                    servoDriverSetState(SD_ARMED, DIAG_CAUSE_EDGE_PASS);
-                } else if (!haveRejectText) {
-                    haveRejectText = true;
-                    lastRejectTextUs = currentTimeUs;
-                    const bool textSent = servoDriverSendStatusText(MAV_SEVERITY_WARNING, rejectText[reason]);
-                    diagNoteRejectText(textSent);
+            } else {
+                if (!prevFrameArmed) {
+                    diagNoteArmEdge(servoDriverReadiness());
                 }
+                servoDriverSetState(SD_ARMED, DIAG_CAUSE_ARMED_FRAME);
             }
         }
         break;
@@ -570,9 +564,6 @@ static void servoDriverExpireWindows(timeUs_t currentTimeUs)
     }
     if (haveConfigActivity && cmpTimeUs(currentTimeUs, lastConfigActivityUs) >= SERVO_DRIVER_CONFIG_QUIET_US) {
         haveConfigActivity = false;
-    }
-    if (haveRejectText && cmpTimeUs(currentTimeUs, lastRejectTextUs) >= SERVO_DRIVER_REJECT_TEXT_US) {
-        haveRejectText = false;
     }
     if (haveLowRateText && cmpTimeUs(currentTimeUs, lastLowRateTextUs) >= SERVO_DRIVER_LOW_RATE_TEXT_US) {
         haveLowRateText = false;
@@ -690,8 +681,13 @@ void servoDriverUpdate(timeUs_t currentTimeUs)
             diagNoteRxByte();
             const uint8_t result = mavlink_parse_char(MAVLINK_CHANNEL, c, &rxMessage, &rxStatus);
             // parse errors of this call: counted inside the frame parser (copied to rxStatus) and bad CRC (added by mavlink_parse_char)
-            const uint16_t errors = rxStatus.packet_rx_drop_count + channelStatus->parse_error;
+            const uint16_t frameErrors = rxStatus.packet_rx_drop_count;
+            const uint16_t crcErrors = channelStatus->parse_error;
             channelStatus->parse_error = 0;
+            // a message id unknown to the dialect always fails the CRC (no crc_extra): ignored, not a link error
+            const bool unknownMessage = crcErrors
+                && mavlink_get_msg_entry(mavlink_get_channel_buffer(MAVLINK_CHANNEL)->msgid) == NULL;
+            const uint16_t errors = frameErrors + (unknownMessage ? 0 : crcErrors);
             if (errors) {
                 errorsComm += errors;
                 haveCrcError = true;
@@ -729,7 +725,12 @@ void servoDriverUpdate(timeUs_t currentTimeUs)
             }
             lastTickUs = currentTimeUs;
             sessionAtLastTick = sessionActive;
-            servoDriverSendHeartbeat();
+            const readiness_e readiness = servoDriverReadiness();
+            servoDriverSendHeartbeat(readiness);
+            if (state == SD_DISARMED && readiness != READY) {
+                const bool textSent = servoDriverSendStatusText(MAV_SEVERITY_WARNING, notReadyText[readiness]);
+                diagNoteNotReadyText(textSent);
+            }
             servoDriverSendSysStatus();
             winAuxFrames = 0;
             winMessages = 0;

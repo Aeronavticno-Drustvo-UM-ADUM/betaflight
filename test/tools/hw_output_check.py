@@ -58,7 +58,7 @@ DIAG_MAGIC = 0x5D1A6001
 STATE_DISARMED, STATE_ARMED, STATE_FAILSAFE = 0, 1, 2
 STATE_NAMES = {STATE_DISARMED: "DISARMED", STATE_ARMED: "ARMED", STATE_FAILSAFE: "FAILSAFE"}
 
-BoardState = namedtuple("BoardState", "last_to_state armed_at_frame first_armed_frame edge_rejects last_reject_reason")
+BoardState = namedtuple("BoardState", "last_to_state armed_at_frame first_armed_frame edges_not_ready last_not_ready_reason")
 
 
 class Results:
@@ -130,16 +130,16 @@ def read_board_state(openocd_args, diag_address):
     if values["magic"] != DIAG_MAGIC:
         return None
     return BoardState(values["lastToState"], values["armedAtFrameNo"], values["firstArmedFrameNo"],
-                      values["edgeRejects"], values["lastRejectReason"])
+                      values["edgesNotReady"], values["lastNotReadyReason"])
 
 
 def describe_state(state):
     """Short text of a BoardState for check detail lines."""
     if state is None:
         return "SWD n/a"
-    return "SWD %s, armedAt %d, firstArmed %d, edgeRejects %d (reason %d)" % (
+    return "SWD %s, armedAt %d, firstArmed %d, edgesNotReady %d (reason %d)" % (
         STATE_NAMES.get(state.last_to_state, "?"), state.armed_at_frame, state.first_armed_frame,
-        state.edge_rejects, state.last_reject_reason)
+        state.edges_not_ready, state.last_not_ready_reason)
 
 
 def swd_check(results, name, state, ok_condition):

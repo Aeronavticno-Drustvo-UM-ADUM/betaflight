@@ -48,7 +48,7 @@ Timing checks use `time.monotonic()` of the sender and the timestamps of the `[s
 | 1 | test_02_link_loss | gaps below/above the timeout, recovery (disarmed first / armed directly), flapping, HEARTBEAT only, TCP reconnect, 10 s outage |
 | 1 | test_03_frame_integrity | bad CRC, garbage, byte by byte, truncated frame, burst, unknown id / MAVLink 1 / wrong CRC_EXTRA, trimmed payload, other sysid/compid, signed frame |
 | 1 | test_04_gps_pvt | NAV-PVT conversion (fix types, flags, time, DOP) |
-| 1 | test_05_arming_safety | transitions + timing, FAILSAFE 60 s, arm-edge rule (boot / gap), P1-P4 rejections with STATUSTEXT, config lock (CLI/MSP), motor writes every cycle per state (~150 Hz on SITL, 200 Hz bench), HEARTBEAT status, SYS_STATUS, parser reset, sd_* settings |
+| 1 | test_05_arming_safety | transitions + timing, FAILSAFE 60 s, every ARMED frame arms (D8), P1-P4 readiness (HEARTBEAT UNINIT + NOT READY text, armed anyway), unknown msgid ignored, config lock (CLI/MSP), motor writes every cycle per state (~150 Hz on SITL, 200 Hz bench), HEARTBEAT status, SYS_STATUS, parser reset, sd_* settings |
 | 2 | (planned) | GPS faults, TX buffer saturation, configurator access while armed |
 | 3 | (planned) | soak, timer wrap, reboot, EEPROM |
 

@@ -8,8 +8,8 @@ Scenarios:
  2. FAILSAFE never times out: 60 s without frames, then an armed frame recovers
  3. Arm-edge rule: first frame after boot says ARMED (inside the boot grace) -> arms at once
  4. Arm-edge rule: first frame after a gap > timeout says ARMED -> arms at once, no checks (even with a recent CRC error)
- 5. P1 LINK_NOT_READY: edge after < 5 valid frames, edge within 1 s of a CRC error
- 6. P2 BOOT_GRACE: edge inside sd_boot_grace_ms after boot
+ 5. P1 LINK: < 5 valid frames, CRC error in the last 1 s; a frame with an unknown message id is not a CRC error
+ 6. P2 BOOT_GRACE: inside sd_boot_grace_ms after boot
  7. P3 MOTOR_CONFIG: motor_pwm_protocol = DISABLED
  8. P4 CONFIG_ACTIVE: CLI session open, MSP write in the last 2 s (P5 save pending: not testable on SITL)
  9. Config lock: CLI entry and MSP write commands refused while armed and in failsafe, allowed when disarmed
@@ -18,8 +18,9 @@ Scenarios:
 12. Parser reset after 1 s of silence: truncated frame, 1.5 s silence, valid frame applied at once
 13. CLI settings sd_link_timeout_ms / sd_boot_grace_ms exist, defaults, change the behaviour
 
-Every rejection scenario checks: exact text `ARM REJECTED: <CODE>` (severity WARNING), motors stay at min_command while ARMED keeps
-coming (no delayed spin-up), at most 2 rejection texts per second, arms on a new edge once the cause is gone.
+Rule D8: the satellite never refuses an ARMED frame. Every readiness scenario (P1-P4) checks: while the cause lasts and the
+board is DISARMED, HEARTBEAT UNINIT + exact text `NOT READY: <CODE>` (severity WARNING, at most 2 per second); an ARMED frame
+during the cause still arms at once (< 50 ms); once the cause is gone, HEARTBEAT STANDBY and no new NOT READY text.
 Exit code 0 when every check passes, 1 on a failed check, 2 when SITL cannot be started.
 """
 import os
@@ -33,14 +34,16 @@ from common import mavlink_gen as mav  # noqa: E402
 from common.harness import RUN, POSE, IDLE, check  # noqa: E402
 
 T_FS = h.FAILSAFE_TIMEOUT_S
+UNKNOWN_MSGID = 12999             # not in the ADUM dialect
 DISARM_MIN_S, DISARM_MAX_S = 0.495, 0.600
 BOOT_GRACE_S = 2.0                 # sd_boot_grace_ms default
 SEV_CRITICAL, SEV_WARNING = mav.MAV_SEVERITY_CRITICAL, mav.MAV_SEVERITY_WARNING
 STANDBY, ACTIVE, CRITICAL = mav.MAV_STATE_STANDBY, mav.MAV_STATE_ACTIVE, mav.MAV_STATE_CRITICAL
+UNINIT = mav.MAV_STATE_UNINIT
 MOTOR_LATENCY_S = 0.05
 RATE_MIN = 120                     # SITL runs the servo task at ~150 Hz (measured 146-151), the target 200 Hz is a bench item
 
-measured = {"fs_delay": [], "reject_latency": [], "rate": {}}
+measured = {"fs_delay": [], "not_ready_latency": [], "rate": {}}
 
 
 # ---------------------------------------------------------------- helpers
@@ -88,37 +91,58 @@ def hb_status(fx, armed, after=None):
     return fx.link.status_after(after, 2.5, keep)
 
 
-def check_rejection(fx, code, label, seconds=1.2):
-    """ARMED frames start now (the arm edge): exact STATUSTEXT, no spin-up, rate <= 2 Hz, STANDBY."""
-    t_edge = fx.link.send_aux(True, RUN, POSE)
-    text = "ARM REJECTED: " + code
-    frames(fx, seconds, True)
-    found = fx.link.texts_since(t_edge, "ARM REJECTED")
-    first = fx.link.wait_text(text, t_edge - 0.001, 0.2)
+def report_not_ready(fx, code, label, since):
+    """Checks the not-ready report since `since`: HEARTBEAT UNINIT, STATUSTEXT 'NOT READY: <code>' (WARNING), only this reason."""
+    beats = [status for t, _, status in list(fx.link.hb_full) if t >= since]
+    first_status = beats[0] if beats else None
+    check("%s: HEARTBEAT UNINIT (0)" % label, first_status == UNINIT, "statuses %s" % beats[:3])
+    text = "NOT READY: " + code
+    first = fx.link.wait_text(text, since, 0.3)
+    found = fx.link.texts_since(since, "NOT READY")
     check("%s: STATUSTEXT '%s'" % (label, text), first is not None, "texts %s" % [x[2] for x in found[:3]])
     if first:
-        measured["reject_latency"].append(first[0] - t_edge)
+        measured["not_ready_latency"].append(first[0] - since)
         check("%s: severity WARNING (4)" % label, first[1] == SEV_WARNING, "severity %d" % first[1])
-        check("%s: STATUSTEXT within 100 ms of the edge" % label, first[0] - t_edge < 0.1,
-              "%.0f ms" % ((first[0] - t_edge) * 1e3))
     check("%s: only this reason reported" % label, all(x[2] == text for x in found), str(sorted({x[2] for x in found})))
-    check("%s: at most 2 rejection texts per second" % label, max_per_second([x[0] for x in found]) <= 2,
-          "%d texts in %.1f s" % (len(found), seconds))
-    seen = motors_seen(fx, t_edge)
-    check("%s: no spin-up while ARMED keeps coming" % label, seen <= {h.MOTOR_MIN}, "motor values %s" % sorted(seen))
+    check("%s: at most 2 NOT READY texts per second" % label, max_per_second([x[0] for x in found]) <= 2,
+          "%d texts" % len(found))
+
+
+def arm_despite(fx, label, check_motors=True):
+    """ARMED frame while not ready arms at once (D8), then a disarmed frame. Returns the seconds since the SITL start at the edge."""
+    boot_s = fx.since_boot()
+    if check_motors:
+        arm_edge(fx, "%s: ARMED frame despite not ready" % label)
+    else:
+        fx.link.send_aux(True, RUN, POSE)
+        frames(fx, 0.2, True)
     status = hb_status(fx, True)
-    check("%s: HEARTBEAT STANDBY, not armed" % label, status == STANDBY and fx.link.board_armed is False,
-          "status %s armed %s" % (status, fx.link.board_armed))
+    check("%s: armed despite not ready (HEARTBEAT ACTIVE, SAFETY_ARMED)" % label,
+          status == ACTIVE and fx.link.board_armed is True, "status %s armed %s" % (status, fx.link.board_armed))
+    fx.link.send_aux(False, RUN, POSE)
+    frames(fx, 0.3, False)
+    return boot_s
 
 
-def new_edge_arms(fx, label, disarmed_s=0.4):
-    """Cause gone: disarmed frames, then a new arm edge arms."""
-    frames(fx, disarmed_s, False)
+def check_not_ready(fx, code, label, keep=None, window=1.2, check_motors=True):
+    """Cause present, frames DISARMED for `window` s: not-ready report; then an ARMED frame arms at once. Returns the SITL uptime at the edge."""
+    t0 = time.monotonic()
+    keep = keep or keep_fn(fx, False)
+    while time.monotonic() < t0 + window:
+        keep()
+    report_not_ready(fx, code, label, t0)
+    return arm_despite(fx, label, check_motors)
+
+
+def check_ready_again(fx, label, settle=0.4):
+    """Cause gone: HEARTBEAT STANDBY and no new NOT READY text."""
+    frames(fx, settle, False)
     t = time.monotonic()
-    ok, _ = arm_edge(fx, label)
-    rejected = fx.link.texts_since(t, "ARM REJECTED")
-    check("%s: no rejection text" % label, not rejected, str([x[2] for x in rejected]))
-    return ok
+    status = hb_status(fx, False, t)
+    frames(fx, 0.3, False)
+    texts = fx.link.texts_since(t, "NOT READY")
+    check("%s: HEARTBEAT STANDBY once the cause is gone" % label, status == STANDBY, "status %s" % status)
+    check("%s: no NOT READY text once the cause is gone" % label, not texts, str([x[2] for x in texts]))
 
 
 def cli_open(fx, armed, seconds=1.2):
@@ -281,7 +305,7 @@ def s1_transitions(fx):
     back = fx.link.texts_since(t_back, "FAILSAFE: link restored")
     check("FAILSAFE->ARMED: STATUSTEXT 'FAILSAFE: link restored', severity CRITICAL (2)",
           len(back) == 1 and back[0][1] == SEV_CRITICAL, str(back))
-    check("FAILSAFE->ARMED: no ARM REJECTED", not fx.link.texts_since(t_back, "ARM REJECTED"))
+    check("FAILSAFE->ARMED: no NOT READY text", not fx.link.texts_since(t_back, "NOT READY"))
     status = hb_status(fx, True, t_back + 0.05)
     check("FAILSAFE->ARMED: HEARTBEAT ACTIVE, armed", status == ACTIVE and fx.link.board_armed is True,
           "status %s armed %s" % (status, fx.link.board_armed))
@@ -299,7 +323,6 @@ def s1_transitions(fx):
     status = fx.link.status_after(t_back + 0.05, 2.0, lambda: fx.link.frames(0.1, False, RUN, new_pose))
     check("FAILSAFE->DISARMED: HEARTBEAT STANDBY (3)", status == STANDBY, "status %s" % status)
     print("   info: STATUSTEXTs after FAILSAFE->DISARMED: %s" % [x[2] for x in fx.link.texts_since(t_back)])
-    check("FAILSAFE->DISARMED: no ARM REJECTED", not fx.link.texts_since(t_back, "ARM REJECTED"))
     fx.link.frames(0.3, False, RUN, POSE)
 
 
@@ -343,7 +366,7 @@ def s3_first_frame_after_boot(fx):
           boot_s < BOOT_GRACE_S)
     frames(fx, 0.5, True)
     texts = [x[2] for x in fx.link.texts_since(t_edge)]
-    check("no rejection, no failsafe text", not texts, str(texts))
+    check("armed at once: no NOT READY, no failsafe text", not texts, str(texts))
     status = hb_status(fx, True)
     check("HEARTBEAT ACTIVE, armed", status == ACTIVE and fx.link.board_armed is True, "status %s" % status)
     frames(fx, 0.3, False)
@@ -353,48 +376,81 @@ def s4_first_frame_after_gap(fx):
     """First frame after a gap > timeout says ARMED: arms at once, no checks"""
     wait_boot(fx)
     disarmed(fx, 0.5)
-    fx.link.send(h.corrupt_crc(fx.link.gen.aux_channels(False, RUN, POSE)))      # CRC error: P1 would reject for 1 s
+    fx.link.send(h.corrupt_crc(fx.link.gen.aux_channels(False, RUN, POSE)))      # CRC error: P1 not ready for 1 s
     time.sleep(T_FS + 0.2)                                                         # gap > timeout: link session over
     t_edge = fx.link.send_aux(True, RUN, POSE)
     wait = fx.wait_outputs(motors=RUN, timeout=0.5)
-    check("armed frame after a gap: motors follow at once (< 50 ms) although P1 would reject",
+    check("armed frame after a gap: motors follow at once (< 50 ms) although P1 is not ready",
           wait is not None and wait < MOTOR_LATENCY_S, "after %s ms" % (None if wait is None else round(wait * 1e3)))
     frames(fx, 0.3, True)
-    texts = [x[2] for x in fx.link.texts_since(t_edge, "ARM REJECTED")]
-    check("no ARM REJECTED", not texts, str(texts))
+    texts = [x[2] for x in fx.link.texts_since(t_edge, "NOT READY")]
+    check("armed frame after a gap: no NOT READY text while armed", not texts, str(texts))
     frames(fx, 0.3, False)
+
+
+def wait_new_heartbeat(fx, timeout=2.0):
+    """Waits (no frames sent) until a new HEARTBEAT arrives; returns its time or None."""
+    count = len(fx.link.hb_full)
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if len(fx.link.hb_full) > count:
+            return fx.link.hb_full[-1][0]
+        time.sleep(0.01)
+    return None
 
 
 def s5_p1_link_not_ready(fx):
-    """P1 LINK_NOT_READY: edge after < 5 valid frames, edge within 1 s of a CRC error"""
+    """P1 LINK: < 5 valid frames, CRC error in the last 1 s; unknown message id is not a CRC error"""
     wait_boot(fx)
     disarmed(fx, 0.3)
-    time.sleep(T_FS + 0.3)                       # new link session: 1 disarmed frame, then ARMED frames
-    fx.link.send_aux(False, RUN, POSE)
-    check_rejection(fx, "LINK_NOT_READY", "P1 (2nd frame of the session)")
-    check("P1: new edge after 5+ valid frames arms", new_edge_arms(fx, "P1 after 5+ frames"))
+    time.sleep(T_FS + 0.3)                       # gap: new link session on the next frame
+    t_beat = wait_new_heartbeat(fx)              # sync: next HEARTBEAT comes 1 s after this one
+    check("P1: HEARTBEAT seen during the gap (sync)", t_beat is not None)
+    t0 = time.monotonic()
+    for _ in range(3):                           # 3 valid frames 0.4 s apart: the session is < 5 frames old
+        fx.link.send_aux(False, RUN, POSE)
+        time.sleep(0.4)
+    status = fx.link.status_after(t0, 0.6)
+    report_not_ready(fx, "LINK", "P1 (3 frames in the session)", t0)
+    check("P1: HEARTBEAT UNINIT came with fewer than 5 frames", status == UNINIT, "status %s" % status)
+    arm_despite(fx, "P1 (4th frame of the session)")
+    check_ready_again(fx, "P1 after 5+ frames")
+
+    def crc_error_and_frames():
+        fx.link.send(h.corrupt_crc(fx.link.gen.aux_channels(False, RUN, POSE)))
+        frames(fx, 0.2, False)
+    check_not_ready(fx, "LINK", "P1 (CRC errors, last 0.1-0.2 s before the edge)", keep=crc_error_and_frames)
+    check_ready_again(fx, "P1 after the CRC window", settle=1.2)
+
+    # valid frame with an unknown message id: ignored, not a CRC error
+    sys.modules[type(fx.link.gen).__module__].CRC_EXTRA.setdefault(UNKNOWN_MSGID, 77)   # frame is well-formed, id unknown to the firmware
+    unknown = fx.link.gen._frame(UNKNOWN_MSGID, bytes(range(1, 9)))
+    t = time.monotonic()
+    for _ in range(30):
+        fx.link.send(unknown)
+        frames(fx, 0.05, False)
+    status = hb_status(fx, False, t)
     frames(fx, 0.3, False)
-    disarmed(fx, 0.4)                            # CRC error right before the edge
-    fx.link.send(h.corrupt_crc(fx.link.gen.aux_channels(False, RUN, POSE)))
-    frames(fx, 0.2, False)
-    check_rejection(fx, "LINK_NOT_READY", "P1 (CRC error 0.2 s before the edge)")
-    check("P1: new edge > 1 s after the CRC error arms", new_edge_arms(fx, "P1 after the CRC window", 1.2))
+    texts = fx.link.texts_since(t, "NOT READY")
+    check("P1: unknown message id sent 30x: HEARTBEAT stays STANDBY", status == STANDBY, "status %s" % status)
+    check("P1: unknown message id: no NOT READY text", not texts, str([x[2] for x in texts]))
     frames(fx, 0.3, False)
 
 
 def s6_p2_boot_grace(fx):
-    """P2 BOOT_GRACE: edge inside sd_boot_grace_ms after boot"""
+    """P2 BOOT_GRACE: inside sd_boot_grace_ms after boot"""
     check("SITL restarted", fx.restart())
-    frames(fx, 0.3, False)
-    boot_s = fx.since_boot()
-    check_rejection(fx, "BOOT_GRACE", "P2 (edge %.2f s after the SITL start)" % boot_s, seconds=0.8)
-    check("P2: the edge was inside the grace (test condition)", boot_s < BOOT_GRACE_S - 0.1, "%.2f s" % boot_s)
+    frames(fx, 0.1, False)
+    t0 = time.monotonic()
+    while time.monotonic() < t0 + 1.5 and not [1 for t, _, _ in list(fx.link.hb_full) if t >= t0]:
+        frames(fx, 0.05, False)                  # until the first HEARTBEAT, well inside the grace
+    report_not_ready(fx, "BOOT_GRACE", "P2", t0)
+    boot_s = arm_despite(fx, "P2")
+    check("P2: the edge was inside the grace (test condition: %.2f s after the SITL start)" % boot_s,
+          boot_s < BOOT_GRACE_S - 0.05, "%.2f s" % boot_s)
     while fx.since_boot() < BOOT_GRACE_S + 0.3:
-        frames(fx, 0.1, True)
-    check("P2: still disarmed after the grace while ARMED keeps coming (no delayed spin-up)",
-          motors_seen(fx, fx.sitl.t_start) <= {h.MOTOR_MIN}, str(fx.motors()))
-    check("P2: new edge after the grace arms", new_edge_arms(fx, "P2 after the grace"))
-    frames(fx, 0.3, False)
+        frames(fx, 0.1, False)
+    check_ready_again(fx, "P2 after the grace")
 
 
 def s7_p3_motor_config(fx):
@@ -403,11 +459,11 @@ def s7_p3_motor_config(fx):
     check("CLI: motor_pwm_protocol = DISABLED accepted", "Invalid" not in replies[1], replies[1].strip()[:80])
     wait_boot(fx)
     disarmed(fx, 0.5)
-    check_rejection(fx, "MOTOR_CONFIG", "P3")
+    check_not_ready(fx, "MOTOR_CONFIG", "P3", check_motors=False)    # motor output is disabled: no motor values to follow
     cli_set(fx, ["set motor_pwm_protocol = ONESHOT125"])
     wait_boot(fx)
-    check("P3: new edge after restoring the protocol arms", new_edge_arms(fx, "P3 restored", 0.5))
-    frames(fx, 0.3, False)
+    disarmed(fx, 0.5)
+    check_ready_again(fx, "P3 restored")
 
 
 def s8_p4_config_active(fx):
@@ -417,21 +473,18 @@ def s8_p4_config_active(fx):
     sock, banner = cli_open(fx, False)
     check("CLI entry allowed while disarmed", "Entering CLI" in banner, repr(banner[:60]))
     frames(fx, 0.4, False)
-    check_rejection(fx, "CONFIG_ACTIVE", "P4 (CLI open)")
+    check_not_ready(fx, "CONFIG_ACTIVE", "P4 (CLI open)")
     restarted = cli_leave(fx, sock)
     print("   info: `exit` %s" % ("restarted SITL" if restarted else "left SITL running"))
     wait_boot(fx)
     disarmed(fx, 2.2)
-    check("P4: new edge after the CLI is closed arms", new_edge_arms(fx, "P4 CLI closed"))
-    frames(fx, 0.3, False)
+    check_ready_again(fx, "P4 CLI closed")
     disarmed(fx, 0.5)                            # MSP write in the last 2 s
     reply = msp(fx, MSP_EEPROM_WRITE, armed=False, wait=0.2)
     check("MSP EEPROM write accepted while disarmed", msp_ack(reply), repr(reply[:20]))
-    frames(fx, 0.2, False)
-    check_rejection(fx, "CONFIG_ACTIVE", "P4 (MSP write 0.4 s before the edge)")
+    check_not_ready(fx, "CONFIG_ACTIVE", "P4 (MSP write)", window=1.0)
     disarmed(fx, 2.2)
-    check("P4: new edge > 2 s after the MSP write arms", new_edge_arms(fx, "P4 MSP quiet"))
-    frames(fx, 0.3, False)
+    check_ready_again(fx, "P4 MSP quiet")
 
 
 def s9_config_lock(fx):
@@ -601,9 +654,9 @@ if __name__ == "__main__":
     f = measured["fs_delay"]
     if f:
         print("failsafe delay over %d measurements: min %.0f ms, max %.0f ms" % (len(f), min(f) * 1e3, max(f) * 1e3))
-    rl = measured["reject_latency"]
+    rl = measured["not_ready_latency"]
     if rl:
-        print("rejection STATUSTEXT latency over %d: min %.0f ms, max %.0f ms" % (len(rl), min(rl) * 1e3, max(rl) * 1e3))
+        print("not-ready STATUSTEXT latency over %d: min %.0f ms, max %.0f ms" % (len(rl), min(rl) * 1e3, max(rl) * 1e3))
     for state, rates in measured["rate"].items():
         print("motor writes/s %s: %s" % (state, rates))
     sys.exit(code)

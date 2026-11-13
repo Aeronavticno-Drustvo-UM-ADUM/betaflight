@@ -9,7 +9,7 @@ import sys
 FIELDS = [
     "magic", "resetCsr", "bootCount",
     "auxFrames", "auxArmedFrames", "auxDisarmedFrames", "newSessions",
-    "armEdges", "edgeRejects", "lastRejectReason", "rejectTextsSent", "rejectTextsDropped",
+    "armEdges", "edgesNotReady", "lastNotReadyReason", "notReadyTextsSent", "notReadyTextsDropped",
     "txDrops", "parseErrors", "stateChanges",
     "lastFromState", "lastToState", "lastCause", "lastAuxFrameNo", "lastTransitionMs",
     "maxRxBytesPerCycle", "maxCycleGapUs", "firstArmedFrameNo", "armedAtFrameNo",

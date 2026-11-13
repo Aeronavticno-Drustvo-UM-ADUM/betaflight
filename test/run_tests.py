@@ -53,7 +53,7 @@ def main():
         worst = 2 if (worst == 2 or code == 2) else max(worst, 1 if (failed or code) else 0)
         rows.append((name, checks, failed, known, seconds, code))
         for line in proc.stdout.splitlines():
-            if "[FAIL]" in line or "[KNOWN]" in line or line.startswith(("failsafe delay", "parser recovery", "rejection STATUSTEXT", "motor writes")):
+            if "[FAIL]" in line or "[KNOWN]" in line or line.startswith(("failsafe delay", "parser recovery", "not-ready STATUSTEXT", "motor writes")):
                 print("  %s: %s" % (name, line.strip()))
         if not match:
             print("  %s: no SUMMARY line, exit %d, see %s" % (name, proc.returncode, LOG_DIR))
