@@ -24,9 +24,8 @@ LINK_TIMEOUT_MS = 500            # setting sd_link_timeout_ms default
 DELAY_TOLERANCE_MS = 10.0
 LINK_LOSS_REPEATS = 3
 PULSE_TOLERANCE_US = 2.0
-ONESHOT125_DIVIDER = 8           # pulse = command / 8
 MIN_COMMAND = 1000
-IDLE_PULSE_US = MIN_COMMAND / ONESHOT125_DIVIDER   # 125 us
+IDLE_PULSE_US = MIN_COMMAND      # standard PWM, 1000 us
 ARMED_COMMAND = [1100, 1200, 1300]
 CAUSE_LINK_TIMEOUT = 4
 CAUSE_FAILSAFE_RECOVER = 5
@@ -53,15 +52,15 @@ def worst_pulse_error_us(wanted_us_list):
 
 
 def check_motors_idle(result, name):
-    """Checks all motor pulses are at the idle width (125 us)."""
+    """Checks all motor pulses are at the idle width (1000 us)."""
     worst, measured = worst_pulse_error_us([IDLE_PULSE_US] * MOTOR_COUNT)
     result.check(name, worst <= PULSE_TOLERANCE_US,
                  "worst error %.1f us, measured %s" % (worst, [round(us, 1) for us in measured]))
 
 
 def check_motors_armed(result, name):
-    """Checks the motor pulses equal the commanded values / 8."""
-    wanted_us = [command / ONESHOT125_DIVIDER for command in ARMED_COMMAND]
+    """Checks the motor pulses equal the commanded values."""
+    wanted_us = list(ARMED_COMMAND)
     worst, measured = worst_pulse_error_us(wanted_us)
     result.check(name, worst <= PULSE_TOLERANCE_US,
                  "worst error %.1f us, measured %s" % (worst, [round(us, 1) for us in measured]))
@@ -102,7 +101,7 @@ def phase_arm_and_disarm(streamer, result):
     if not armed:
         print("    board STATUSTEXT: %s" % (streamer.status_texts[-3:] or "none"))
         return False
-    check_motors_armed(result, "armed motor pulses = commanded / 8")
+    check_motors_armed(result, "armed motor pulses = commanded")
     disarm_time = time.monotonic()
     send_disarmed(streamer)
     disarmed_state = sat_bench.wait_until(state_is(sat_bench.STATE_DISARMED), STATE_WAIT_S)
@@ -110,7 +109,7 @@ def phase_arm_and_disarm(streamer, result):
     result.check("HEARTBEAT reports disarmed",
                  streamer.wait_board_state(False, STATE_WAIT_S, since=disarm_time) is not None)
     time.sleep(SETTLE_S)
-    check_motors_idle(result, "motors at 125 us after disarm")
+    check_motors_idle(result, "motors at 1000 us after disarm")
     return True
 
 
@@ -132,7 +131,7 @@ def measure_link_loss(streamer, result, index):
         result.number("failsafe_delay_ms_%d" % index, delay_ms, "ms")
         result.check("loss %d: failsafe delay %d +- %d ms" % (index, LINK_TIMEOUT_MS, DELAY_TOLERANCE_MS),
                      abs(delay_ms - LINK_TIMEOUT_MS) <= DELAY_TOLERANCE_MS, "%.1f ms" % delay_ms)
-    check_motors_idle(result, "loss %d: motors at 125 us in failsafe" % index)
+    check_motors_idle(result, "loss %d: motors at 1000 us in failsafe" % index)
 
     streamer.paused = False                                 # link returns with armed frames
     recovered_state = sat_bench.wait_until(state_is(sat_bench.STATE_ARMED), STATE_WAIT_S)
@@ -162,7 +161,7 @@ def phase_final_disarm(streamer, result):
     disarmed_state = sat_bench.wait_until(state_is(sat_bench.STATE_DISARMED), STATE_WAIT_S)
     result.check("final: board DISARMED (SWD state 0)", disarmed_state)
     time.sleep(SETTLE_S)
-    check_motors_idle(result, "final: motors at 125 us")
+    check_motors_idle(result, "final: motors at 1000 us")
 
 
 def main():

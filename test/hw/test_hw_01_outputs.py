@@ -2,7 +2,7 @@
 """HW 01: satellite servo outputs and disarmed motors (standalone bench, does not arm).
 
 Phase 1: several commanded servo patterns, each servo pulse within tolerance, stable index -> pin mapping.
-Phase 2: motor values in disarmed frames are ignored, motors stay at min_command (OneShot125: 125 us).
+Phase 2: motor values in disarmed frames are ignored, motors stay at min_command (standard PWM, 1000 us).
 Phase 3: pin level: timer channel output enabled (CCER, TIM1 MOE) and GPIO alternate-function push-pull for every pin.
 
 Run via test/hw/run_hw_tests.py, or: python3 test_hw_01_outputs.py --run-dir DIR
@@ -20,11 +20,11 @@ hw = sat_bench.hw                      # test/tools/hw_output_check (pins, const
 PULSE_TOLERANCE_US = 2.0               # same default as hw_output_check --tol-us
 SETTLE_S = 0.4                         # board processes a few frames before the pulses are read
 SERVO_PATTERNS = [
-    ("ascending", [1100, 1300, 1500, 1700, 1900]),
-    ("descending", [1900, 1700, 1500, 1300, 1100]),
+    ("ascending", [1100, 1250, 1400, 1550, 1700, 1900]),
+    ("descending", [1900, 1700, 1550, 1400, 1250, 1100]),
     ("centre", [1500] * hw.SERVO_COUNT),
-    ("low-high alternating", [1000, 2000, 1000, 2000, 1000]),
-    ("rotated", [1300, 1500, 1700, 1900, 1100]),
+    ("low-high alternating", [1000, 2000, 1000, 2000, 1000, 2000]),
+    ("rotated", [1250, 1400, 1550, 1700, 1900, 1100]),
 ]
 DISARMED_MOTOR_VALUES = [1300, 1400, 1500]      # must be ignored while the frames are disarmed
 
@@ -65,12 +65,12 @@ def phase_servos(results, streamer):
 
 
 def phase_disarmed_motors(results, streamer):
-    """Phase 2: motor values in disarmed frames are ignored, motors stay at min_command / 8 (125 us)."""
+    """Phase 2: motor values in disarmed frames are ignored, motors stay at min_command (1000 us, standard PWM)."""
     results.start_phase("2", "motors, disarmed")
     streamer.armed = False
     streamer.motors = list(DISARMED_MOTOR_VALUES)
     pulses = read_motor_pulses()
-    idle_us = hw.MOTOR_MIN_US / hw.ONESHOT125_DIVIDER
+    idle_us = hw.MOTOR_MIN_US
     for pin in hw.MOTOR_PINS:
         error_us = abs(pulses[pin] - idle_us)
         results.check("motor %s stays at min_command (%.1f us)" % (pin, idle_us), error_us <= PULSE_TOLERANCE_US,

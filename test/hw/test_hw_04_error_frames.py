@@ -33,7 +33,7 @@ GARBAGE_DURATION_S = 4.0
 GARBAGE_BURST_PERIOD_S = 0.05
 ARMED_ERROR_DURATION_S = 1.5          # garbage / unknown-id injection time per step while armed
 ARMED_MOTOR_US = 1300
-MOTOR_TOLERANCE_US = 3.0              # OneShot125 pulse tolerance, same order as the output check
+MOTOR_TOLERANCE_US = 3.0              # motor pulse tolerance, same order as the output check
 STANDBY_MAX_S = 3.0                   # reset + disarmed frames -> STANDBY
 NO_TEXT_GRACE_S = 0.2
 HEARTBEAT_SYNC_TIMEOUT_S = 3.0
@@ -251,11 +251,11 @@ def phase_crc_error(report, streamer):
 
 
 def check_motors_follow(report, label):
-    """Motor pulses (OneShot125 = us / divider) match the commanded value."""
+    """Motor pulses match the commanded value (standard PWM, us = command)."""
     pulses = bench.motor_pulses_us()
-    wanted_us = ARMED_MOTOR_US / bench.hw.ONESHOT125_DIVIDER
+    wanted_us = ARMED_MOTOR_US
     worst = max(abs(pulse - wanted_us) for pulse in pulses.values())
-    report.check("%s: motor pulses follow %d (OneShot125 %.1f us +-%.0f)" % (
+    report.check("%s: motor pulses follow %d (%.1f us +-%.0f)" % (
         label, ARMED_MOTOR_US, wanted_us, MOTOR_TOLERANCE_US), worst <= MOTOR_TOLERANCE_US,
         "worst=%.1f us pulses=%s" % (worst, {pin: round(pulse, 1) for pin, pulse in pulses.items()}))
 

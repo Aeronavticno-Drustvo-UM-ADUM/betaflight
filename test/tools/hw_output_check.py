@@ -8,7 +8,7 @@ The script streams ADUM_AUX_CHANNELS at 50 Hz (like the master) and reads the ti
 no scope is needed. Scope stays useful for 50 Hz / 200 Hz timing only.
 
 Steps:
-  1. servos, disarmed: 5 distinct pulses; the script finds which servo index drives which pin and checks
+  1. servos, disarmed: 6 distinct pulses; the script finds which servo index drives which pin and checks
      the widths against the commanded ones (tolerance --tol-us).
   2. motors, disarmed: motor values in the frames must be ignored, outputs stay at min_command.
   3. (--armed) motors, armed: arm edge, board ARMED (SWD diag) and HEARTBEAT shows ARMED, motors follow the
@@ -42,9 +42,10 @@ REG_PSC = 0x28
 REG_CCR = {1: 0x34, 2: 0x38, 3: 0x3C, 4: 0x40}
 REG_BDTR = 0x44            # TIM1 only, bit 15 = MOE (main output enable)
 
-# Output pins in board order: name -> (timer, channel). Servo 1-5 and motor 1-3 are matched by measurement.
-SERVO_PINS = {"PA8": ("TIM1", 1), "PA9": ("TIM1", 2), "PA10": ("TIM1", 3), "PA15": ("TIM2", 1), "PB3": ("TIM2", 2)}
-MOTOR_PINS = {"PA6": ("TIM3", 1), "PB0": ("TIM3", 3), "PB1": ("TIM3", 4)}
+# Output pins in board order: name -> (timer, channel). Servo 1-6 and motor 1-3 are matched by measurement.
+SERVO_PINS = {"PA6": ("TIM3", 1), "PB1": ("TIM3", 4), "PA7": ("TIM3", 2),
+              "PB3": ("TIM2", 2), "PB0": ("TIM3", 3), "PA15": ("TIM2", 1)}
+MOTOR_PINS = {"PA8": ("TIM1", 1), "PA9": ("TIM1", 2), "PA10": ("TIM1", 3)}
 
 REG_CCER = 0x20            # bit 4*(channel-1) = CCnE (channel output enable)
 BDTR_MOE_BIT = 0x8000
@@ -54,8 +55,7 @@ REG_GPIO_CRH = 0x04        # pins 8-15
 AFIO_MAPR = 0x40010004     # TIM2 remap bits [9:8], SWJ_CFG bits [26:24] (SWJ_CFG may read 0)
 
 MOTOR_MIN_US = 1000        # min_command in servo_config_board.txt
-ONESHOT125_DIVIDER = 8     # OneShot125 pulse = command / 8 (1000 us -> 125 us)
-SERVO_COUNT = 5
+SERVO_COUNT = 6
 ARM_EXPECTED_S = 1.5       # arm edge -> HEARTBEAT shows ARMED (HEARTBEAT is sent at 1 Hz)
 ARM_WAIT_MAX_S = 15.0      # how long to wait for a late arm before giving up
 MOTOR_COUNT = 3
@@ -174,11 +174,10 @@ def verify_firmware(openocd_args, elf_path):
     return "verified" in (result.stdout + result.stderr)
 
 
-def read_pulses_us(openocd_args, sample_address):
+def read_pulses_us(openocd_args):
     """Read PSC and CCR of all used timers in one OpenOCD run. Returns {pin: pulse in us}, tim1_moe.
 
-    OneShot motors have CCR = 0 except between the write and the end of the update, so the core is halted
-    on a breakpoint at pwmCompleteOneshotMotorUpdate (CCRs are valid there) and the registers are read.
+    Standard PWM keeps the pulse in CCR all the time, so the core keeps running (no halt needed).
     """
     commands = []
     for timer, base in TIMER_BASE.items():
@@ -186,15 +185,13 @@ def read_pulses_us(openocd_args, sample_address):
         for channel in range(1, 5):
             commands += ["-c", "mdw 0x%08X 1" % (base + REG_CCR[channel])]
     commands += ["-c", "mdw 0x%08X 1" % (TIMER_BASE["TIM1"] + REG_BDTR)]
-    halt_setup = ["-c", "halt", "-c", "bp 0x%08X 2 hw" % sample_address, "-c", "resume", "-c", "wait_halt 3000"]
-    halt_release = ["-c", "rbp 0x%08X" % sample_address, "-c", "resume"]     # the board runs on again
-    cmd = ["openocd"] + openocd_args + ["-c", "init"] + halt_setup + commands + halt_release + ["-c", "shutdown"]
+    cmd = ["openocd"] + openocd_args + ["-c", "init"] + commands + ["-c", "shutdown"]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     text = result.stdout + result.stderr
     values = {}
     for address, value in re.findall(r"0x([0-9a-fA-F]{8}): ([0-9a-fA-F]{8})", text):
         values[int(address, 16)] = int(value, 16)
-    expected_reads = 3 * 5 + 1
+    expected_reads = 3 * 5 + 1      # 3 timers x (PSC + 4 CCR) + BDTR
     if len(values) < expected_reads:
         raise SystemExit("OpenOCD read failed (%d of %d registers). Is the ST-Link connected?\n%s" % (
             len(values), expected_reads, text[-800:]))
@@ -284,10 +281,10 @@ def pin_config_problems(config):
     return problems
 
 
-def settle_and_read(openocd_args, sample_address, wait_s=0.4):
+def settle_and_read(openocd_args, wait_s=0.4):
     """Let the board process a few frames, then read the pulses."""
     time.sleep(wait_s)
-    return read_pulses_us(openocd_args, sample_address)
+    return read_pulses_us(openocd_args)
 
 
 def match_outputs(commanded_us, measured_pins, pulses, tol_us):
@@ -303,16 +300,16 @@ def match_outputs(commanded_us, measured_pins, pulses, tol_us):
     return mapping, worst
 
 
-def check_servos(streamer, openocd_args, sample_address, tol_us, results):
-    """Step 1: distinct pulses on servos 1-5, disarmed. Finds and checks the index -> pin mapping."""
+def check_servos(streamer, openocd_args, tol_us, results):
+    """Step 1: distinct pulses on servos 1-6, disarmed. Finds and checks the index -> pin mapping."""
     print("Step 1: servos, disarmed")
     streamer.armed = False
-    first_set = [1100, 1300, 1500, 1700, 1900]
-    second_set = [1900, 1700, 1500, 1300, 1100]
+    first_set = [1100, 1250, 1400, 1550, 1700, 1900]
+    second_set = list(reversed(first_set))
     mapping_first = None
     for label, values in (("set A", first_set), ("set B", second_set)):
         streamer.servos[:SERVO_COUNT] = values
-        pulses, moe = settle_and_read(openocd_args, sample_address)
+        pulses, moe = settle_and_read(openocd_args)
         mapping, worst = match_outputs(values, SERVO_PINS, pulses, tol_us)
         results.check("servos %s: widths within %.0f us" % (label, tol_us), worst <= tol_us,
                       "worst error %.1f us, measured %s" % (worst, {p: round(pulses[p], 1) for p in SERVO_PINS}))
@@ -326,20 +323,20 @@ def check_servos(streamer, openocd_args, sample_address, tol_us, results):
     return mapping_first
 
 
-def check_motors_disarmed(streamer, openocd_args, sample_address, tol_us, results):
+def check_motors_disarmed(streamer, openocd_args, tol_us, results):
     """Step 2: motor values in disarmed frames must not reach the outputs."""
     print("Step 2: motors, disarmed")
     streamer.armed = False
     streamer.motors = [1300, 1400, 1500]
-    pulses, _ = settle_and_read(openocd_args, sample_address)
-    idle_us = MOTOR_MIN_US / ONESHOT125_DIVIDER
+    pulses, _ = settle_and_read(openocd_args)
+    idle_us = MOTOR_MIN_US
     for pin in MOTOR_PINS:
         results.check("motor %s stays at min_command (%.1f us)" % (pin, idle_us),
                       abs(pulses[pin] - idle_us) <= tol_us, "measured %.1f us" % pulses[pin])
     streamer.motors = [mav.PULSE_IGNORE] * MOTOR_COUNT
 
 
-def check_motors_armed(streamer, openocd_args, sample_address, diag_address, tol_us, results):
+def check_motors_armed(streamer, openocd_args, diag_address, tol_us, results):
     """Step 3: arm edge, motors follow the frame, disarm returns them to min_command."""
     print("Step 3: motors, armed (props off!)")
     streamer.armed = False
@@ -363,9 +360,8 @@ def check_motors_armed(streamer, openocd_args, sample_address, diag_address, tol
         streamer.armed = False
         streamer.motors = [mav.PULSE_IGNORE] * MOTOR_COUNT
         return False
-    pulses, _ = settle_and_read(openocd_args, sample_address)
-    wanted_us = [value / ONESHOT125_DIVIDER for value in commanded]
-    mapping, worst = match_outputs(wanted_us, MOTOR_PINS, pulses, tol_us)
+    pulses, _ = settle_and_read(openocd_args)
+    mapping, worst = match_outputs(commanded, MOTOR_PINS, pulses, tol_us)
     results.check("armed motor widths within %.0f us" % tol_us, worst <= tol_us,
                   "worst error %.1f us, measured %s" % (worst, {p: round(pulses[p], 1) for p in MOTOR_PINS}))
     print("    motor index -> pin: %s" % {i + 1: pin for i, pin in mapping.items()})
@@ -378,15 +374,15 @@ def check_motors_armed(streamer, openocd_args, sample_address, diag_address, tol
               lambda state: state.last_to_state == STATE_DISARMED)
     results.check("HEARTBEAT reports DISARMED after a disarmed frame",
                   streamer.wait_board_state(False, 3.0, since=disarm_time) is not None, describe_state(disarm_state))
-    pulses, _ = settle_and_read(openocd_args, sample_address)
-    idle_us = MOTOR_MIN_US / ONESHOT125_DIVIDER
+    pulses, _ = settle_and_read(openocd_args)
+    idle_us = MOTOR_MIN_US
     worst_idle = max(abs(pulses[pin] - idle_us) for pin in MOTOR_PINS)
     results.check("motors back at min_command after disarm", worst_idle <= tol_us, "worst %.1f us" % worst_idle)
     streamer.motors = [mav.PULSE_IGNORE] * MOTOR_COUNT
     return True
 
 
-def check_failsafe(streamer, openocd_args, sample_address, diag_address, tol_us, results):
+def check_failsafe(streamer, openocd_args, diag_address, tol_us, results):
     """Step 4: armed, then no frames: motors go to min_command, HEARTBEAT shows failsafe (not armed flag)."""
     print("Step 4: link loss while armed")
     streamer.armed = False
@@ -399,8 +395,8 @@ def check_failsafe(streamer, openocd_args, sample_address, diag_address, tol_us,
         streamer.armed = False
         return
     streamer.paused = True               # master goes silent
-    pulses, _ = settle_and_read(openocd_args, sample_address, wait_s=1.2)
-    idle_us = MOTOR_MIN_US / ONESHOT125_DIVIDER
+    pulses, _ = settle_and_read(openocd_args, wait_s=1.2)
+    idle_us = MOTOR_MIN_US
     worst_idle = max(abs(pulses[pin] - idle_us) for pin in MOTOR_PINS)
     results.check("motors at min_command 1.2 s after the last frame", worst_idle <= tol_us, "worst %.1f us" % worst_idle)
     failsafe_state = read_board_state(openocd_args, diag_address)
@@ -432,7 +428,6 @@ def main():
     openocd_args = args.openocd_args.split()
     if not verify_firmware(openocd_args, args.elf):
         raise SystemExit("flash differs from %s: flash that firmware first (symbol addresses would be wrong)" % args.elf)
-    sample_address = find_symbol_address(args.nm, args.elf, "pwmCompleteOneshotMotorUpdate")
     diag_address = find_symbol_address(args.nm, args.elf, "servoDriverDiag")
     fd = serial_io.open_port(args.port, args.baud)
     streamer = FrameStreamer(fd)
@@ -442,11 +437,11 @@ def main():
         if streamer.wait_board_state(False, 5.0) is None:
             raise SystemExit("no HEARTBEAT from the board in 5 s (wrong port, or it is armed): nothing tested")
         print("Board answers, disarmed.")
-        check_servos(streamer, openocd_args, sample_address, args.tol_us, results)
-        check_motors_disarmed(streamer, openocd_args, sample_address, args.tol_us, results)
+        check_servos(streamer, openocd_args, args.tol_us, results)
+        check_motors_disarmed(streamer, openocd_args, args.tol_us, results)
         if args.armed:
-            if check_motors_armed(streamer, openocd_args, sample_address, diag_address, args.tol_us, results):
-                check_failsafe(streamer, openocd_args, sample_address, diag_address, args.tol_us, results)
+            if check_motors_armed(streamer, openocd_args, diag_address, args.tol_us, results):
+                check_failsafe(streamer, openocd_args, diag_address, args.tol_us, results)
     finally:
         # leave the board disarmed, then silence
         streamer.armed = False

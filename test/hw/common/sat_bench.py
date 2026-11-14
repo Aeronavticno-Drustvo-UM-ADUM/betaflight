@@ -75,20 +75,15 @@ def failsafe_delay_ms():
     return delay_ms
 
 
-def _pulse_sample_address():
-    """Address of the OneShot update function, where the CCR registers are valid."""
-    return hw.find_symbol_address("nm", ELF_PATH, "pwmCompleteOneshotMotorUpdate")
-
-
 def motor_pulses_us():
     """Motor pin pulse widths in us {pin: us} (from the timer CCR registers over SWD)."""
-    pulses, _moe = hw.read_pulses_us(OPENOCD_ARGS, _pulse_sample_address())
+    pulses, _moe = hw.read_pulses_us(OPENOCD_ARGS)
     return {pin: pulses[pin] for pin in hw.MOTOR_PINS}
 
 
 def servo_pulses_us():
     """Servo pin pulse widths in us {pin: us}."""
-    pulses, _moe = hw.read_pulses_us(OPENOCD_ARGS, _pulse_sample_address())
+    pulses, _moe = hw.read_pulses_us(OPENOCD_ARGS)
     return {pin: pulses[pin] for pin in hw.SERVO_PINS}
 
 
