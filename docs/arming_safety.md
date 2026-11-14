@@ -22,7 +22,7 @@ Master (flight controller) requirements: section 11.
 | State | Motors | Servos | HEARTBEAT `base_mode` / `system_status` |
 |---|---|---|---|
 | `BOOT` (init up to the first task cycle) | `min_command` | `servo_center_pulse` | (none sent) |
-| `DISARMED`, ready (section 4 all pass) | `min_command` | follow valid frames | 0 / `MAV_STATE_STANDBY` |
+| `DISARMED`, ready (section 4 all pass) | `min_command` (exception: `MOTOR_TEST`, section 14) | follow valid frames | 0 / `MAV_STATE_STANDBY` |
 | `DISARMED`, not ready | `min_command` | follow valid frames | 0 / `MAV_STATE_UNINIT` |
 | `ARMED` | follow armed frames, clamped | follow valid frames | `SAFETY_ARMED` / `MAV_STATE_ACTIVE` |
 | `FAILSAFE` (armed intent, link lost) | `min_command` | hold the last valid value | `SAFETY_ARMED` cleared / `MAV_STATE_CRITICAL` |
@@ -34,7 +34,7 @@ The motor output is written **on every task cycle (200 Hz)** in every state, not
 |---|---|---|---|
 | `BOOT` | `DISARMED` | init done, normal start (power-on / pin reset) | |
 | `DISARMED` | `ARMED` | any valid frame says ARMED | immediately, **no checks, ready or not** (D8). Motors follow that same frame. Covers the arm edge, the first frame of a link session (board rebooted or link recovered while the master was armed) and the race where readiness drops between the master's check and its ARMED frame |
-| `ARMED` | `DISARMED` | valid frame with `arming_status` != ARMED | immediate, by design |
+| `ARMED` | `DISARMED` | valid frame with `arming_status` != ARMED (incl. `MOTOR_TEST`) | immediate, by design |
 | `ARMED` | `FAILSAFE` | no valid `ADUM_AUX_CHANNELS` for `T_fs` (default 500 ms) | HEARTBEAT and other messages do not count |
 | `FAILSAFE` | `ARMED` | valid armed frame (first frame of the new link session) | in-flight recovery: **no checks**, the master decides (resolves TODO B) |
 | `FAILSAFE` | `DISARMED` | valid disarmed frame | |
@@ -151,3 +151,16 @@ Goal: no message-id or dialect fault can make an armed satellite with a good lin
 - **Satellite powered or connected while the master is already armed** (first frame ARMED arms at once, section 3): cannot occur in the aircraft. Master and satellite are fixed-connected, one battery powers both, and the satellite also gets 5 V over the master's USB, so both always boot together and the master boots disarmed.
 - **ESCs powered after arming on USB** (battery plugged in while the master is armed on USB): covered by the master; it does not arm in that state.
 - **Setup check:** `min_command` must be below the ESC start threshold. The satellite outputs it in DISARMED and FAILSAFE, so a wrong value spins the motors while disarmed.
+
+## 14. Motor test (owner, 2026-11-14)
+INAV's motor test (configurator motors tab) works while the master is disarmed, without receiver or arming. `ADUM_AUX_CHANNELS.arming_status` value 2 = `MOTOR_TEST`.
+- **MT1** The master sends `MOTOR_TEST` only while it is disarmed and its motor test is active (INAV `areMotorsRunning()` while disarmed). Motor values are the test values.
+- **MT2** The satellite stays `DISARMED` in a motor test: no arming, no arm edge, no FAILSAFE, readiness unchanged.
+- **MT3** While frames say `MOTOR_TEST`, motors 1-3 follow the frame values, clamped to `min_command`..`max_throttle`.
+- **MT4** A `DISARMED` frame, or no valid frame for 200 ms, sets the motors to `min_command` at once. The satellite never holds a test value longer than 200 ms without a fresh `MOTOR_TEST` frame.
+- **MT5** In `ARMED` and `FAILSAFE`, `MOTOR_TEST` has no effect on the motors; it counts as a disarm frame like any non-ARMED value (section 3).
+- **MT6** The satellite sends STATUSTEXT "MOTOR TEST" (severity WARNING) when the motor test starts, and repeats it at 1 Hz while active.
+- **MT7** Compatibility: older satellite firmware treats any non-ARMED value as `DISARMED`, so its motors stay stopped. Enum value only, no `crc_extra` change (section 12).
+- **MT8** `MOTOR_TEST` is ignored for 5 s (`SERVO_DRIVER_MOTOR_TEST_LOCKOUT_MS`) after the satellite goes from `ARMED` or `FAILSAFE` to `DISARMED` (landing, accidental disarm in flight): motors stay at `min_command`, no "MOTOR TEST" start text.
+- **MT9** `MOTOR_TEST` is ignored until the boot grace is over (`sd_boot_grace_ms`): standard PWM ESCs enter throttle calibration on a high pulse at power-up.
+- **MT10** A blocked `MOTOR_TEST` frame (MT8, MT9) produces one STATUSTEXT "MOTOR TEST BLOCKED" (severity WARNING) per blocked episode; a non-`MOTOR_TEST` frame or the test becoming allowed ends the episode.

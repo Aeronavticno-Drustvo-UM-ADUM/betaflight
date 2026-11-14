@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live view of the SATELLITEBOARD over its USB port (MSP), no ST-Link needed.
 
-Prints, every period: the satellite state (DISARMED / ARMED / FAILSAFE) and the servo 1-6 and motor 1-3 values the
+Prints, every period: the satellite state (DISARMED / MOTOR TEST / ARMED / FAILSAFE) and the servo 1-6 and motor 1-3 values the
 board applied from the last ADUM_AUX_CHANNELS frame (S1-S6, M1-M3), with their PCB output header (O1-O9).
 Servo/motor values need firmware from 2026-11-14 or later (servo_driver.c fills servo[] / motor[] for MSP).
 
@@ -26,6 +26,7 @@ BOX_FAILSAFE = 27
 
 SERVO_OUTPUTS = ["O1", "O9", "O2", "O8", "O3", "O7"]  # PCB header of S1-S6 (target.c, docs/adum/sat_pinout.png)
 MOTOR_OUTPUTS = ["O4", "O6", "O5"]                    # PCB header of M1-M3
+MIN_COMMAND_US = 1000                                 # satellite default min_command (target config.c)
 
 
 def default_port():
@@ -71,19 +72,25 @@ def main():
     parser.add_argument("--port", help="satellite USB port (default: the only STM32 VCP)")
     parser.add_argument("--period", type=float, default=0.5, help="seconds between prints")
     args = parser.parse_args()
+    
+    cnt = 0
 
     msp = Msp(args.port or default_port())
     box_ids = list(msp.request(MSP_BOXIDS))                           # bit order of the MSP_STATUS flags
     try:
         while True:
+            cnt = cnt + 1
             state = read_state(msp, box_ids)
             servos = struct.unpack("<8h", msp.request(MSP_SERVO)[:16])
             motors = struct.unpack("<8H", msp.request(MSP_MOTOR)[:16])
+            # While DISARMED a motor is above min_command only in a motor test (arming_safety.md MT2/MT3)
+            if state == "DISARMED" and any(motors[index] > MIN_COMMAND_US for index in range(len(MOTOR_OUTPUTS))):
+                state = "MOTOR TEST"
             servo_text = "  ".join("S%d(%s) %4d" % (index + 1, output, servos[index])
                                    for index, output in enumerate(SERVO_OUTPUTS))
             motor_text = "  ".join("M%d(%s) %4d" % (index + 1, output, motors[index])
                                    for index, output in enumerate(MOTOR_OUTPUTS))
-            print("%-8s | servos %s | motors %s" % (state, servo_text, motor_text), flush=True)
+            print("%d| %-10s | servos %s | motors %s" % (cnt, state, servo_text, motor_text), flush=True)
             time.sleep(args.period)
     except KeyboardInterrupt:
         pass

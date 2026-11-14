@@ -10,7 +10,7 @@ Scenarios:
  4. Continuous 50 Hz stream with a servo sweep: monotonic, many distinct values, motors without glitch
  5. Frame rates 10, 50, 100 Hz armed: outputs follow, no disarm
  6. Frame -> output latency
- 7. Clamps and special values, servos 6-8 ignored
+ 7. Clamps and special values, servos 7-8 ignored
  8. arming_status 2 / 255 counts as disarmed
  9. Arm/disarm toggling at every frame (50 Hz, 2 s)
 
@@ -41,7 +41,7 @@ def s2_disarmed(fx):
     """Disarmed frames: servos follow, motors stay at min_command"""
     t0 = time.monotonic()
     fx.link.frames(1.0, False, [1400, 1400, 1400], POSE)
-    check("servos follow servo 1-5 although disarmed", fx.servos() == POSE, str(fx.servos()))
+    check("servos follow servo 1-6 although disarmed", fx.servos() == POSE, str(fx.servos()))
     check("motors stay at min_command", fx.motors() == IDLE, str(fx.motors()))
     seen = set().union(*(fx.sitl.seen("motor", i, t0) for i in range(h.MOTORS)))
     check("motors never left min_command", seen == {h.MOTOR_MIN}, str(sorted(seen)))
@@ -49,7 +49,7 @@ def s2_disarmed(fx):
 
 def s3_arm_disarm(fx):
     """Arm and disarm"""
-    pose2 = [1100, 1900, 1500, 1400, 1300]
+    pose2 = [1100, 1900, 1500, 1400, 1300, 1650]
     fx.link.send_aux(True, RUN, POSE)
     wait = fx.wait_outputs(motors=RUN)
     check("motors follow the armed frame", wait is not None, "after %s ms" % (None if wait is None else round(wait * 1e3)))
@@ -74,16 +74,16 @@ def s4_sweep(fx):
     check("servo 1 sweep is monotonic", sweep == sorted(sweep), "first %s last %s" % (sweep[:1], sweep[-1:]))
     check("servo 1 reaches the end of the range", bool(sweep) and sweep[-1] >= 1950, "last %s" % sweep[-1:])
     others = [fx.sitl.changes("servo", i, since) for i in range(1, h.SERVOS)]
-    check("servos 2-5 did not move", all(not c for c in others), str(others))
+    check("servos 2-6 did not move", all(not c for c in others), str(others))
     glitch = {i: sorted(fx.sitl.seen("motor", i, since)) for i in range(h.MOTORS)}
     check("motors never changed (no glitch)", all(v == [RUN[i]] for i, v in glitch.items()), str(glitch))
 
 
 def s5_rates(fx):
     """Frame rates 10, 50, 100 Hz while armed"""
-    for rate, motors, pose in ((10, [1300, 1400, 1450], [1111, 1222, 1333, 1444, 1555]),
-                               (50, [1350, 1450, 1550], [1212, 1312, 1412, 1512, 1612]),
-                               (100, [1250, 1350, 1650], [1010, 1110, 1210, 1310, 1410])):
+    for rate, motors, pose in ((10, [1300, 1400, 1450], [1111, 1222, 1333, 1444, 1555, 1666]),
+                               (50, [1350, 1450, 1550], [1212, 1312, 1412, 1512, 1612, 1712]),
+                               (100, [1250, 1350, 1650], [1010, 1110, 1210, 1310, 1410, 1510])):
         fx.settle(True)
         t0 = time.monotonic()
         fx.link.frames(1.5, True, motors, pose, rate_hz=rate)
@@ -117,22 +117,22 @@ def s6_latency(fx):
 
 
 def s7_clamps(fx):
-    """Clamps, no-value markers, servos 6-8"""
+    """Clamps, no-value markers, servos 7-8"""
     fx.settle(True)
     link = fx.link
-    link.frames(0.4, True, [2500, 500, 0], [2600, 400, 0, None, 1500, 1111, 1222, 1333])
+    link.frames(0.4, True, [2500, 500, 0], [2600, 400, 0, None, 1500, 1550, 1222, 1333])
     check("servo 2600/400 -> 2500/500", fx.servos()[:2] == [2500, 500], str(fx.servos()))
     check("servo value 0 and 65535 keep the previous value", fx.servos()[2:4] == POSE[2:4], str(fx.servos()))
     check("motor above max_throttle -> 2000, below min_command -> 1000, 0 -> 1000", fx.motors() == [2000, 1000, 1000], str(fx.motors()))
-    link.frames(0.4, True, [None, 3000, 1400], [1900, 1000, None, 0, 1500, 2222, 2222, 2222])
-    check("servos follow valid values, 0/65535 keep", fx.servos() == [1900, 1000, POSE[2], POSE[3], 1500], str(fx.servos()))
+    link.frames(0.4, True, [None, 3000, 1400], [1900, 1000, None, 0, 1500, 1350, 2222, 2222])
+    check("servos follow valid values, 0/65535 keep", fx.servos() == [1900, 1000, POSE[2], POSE[3], 1500, 1350], str(fx.servos()))
     check("motor 65535 -> 1000, 3000 -> 2000, 1400 applied", fx.motors() == [1000, 2000, 1400], str(fx.motors()))
     since = time.monotonic()
-    link.frames(0.4, True, RUN, [1700, 1600, 1500, 1400, 1300, 500, 500, 500])
-    link.frames(0.4, True, RUN, [1700, 1600, 1500, 1400, 1300, 2500, 2500, 2500])
-    check("servos 6-8 have no effect on outputs 1-5", fx.servos() == [1700, 1600, 1500, 1400, 1300]
+    link.frames(0.4, True, RUN, [1700, 1600, 1500, 1400, 1300, 1250, 500, 500])
+    link.frames(0.4, True, RUN, [1700, 1600, 1500, 1400, 1300, 1250, 2500, 2500])
+    check("servos 7-8 have no effect on outputs 1-6", fx.servos() == [1700, 1600, 1500, 1400, 1300, 1250]
           and len(fx.sitl.changes("servo", 0, since + 0.05)) == 0, str(fx.servos()))
-    check("no outputs beyond servo 5 / motor 3", set(fx.sitl.values("servo")) <= set(range(h.SERVOS))
+    check("no outputs beyond servo 6 / motor 3", set(fx.sitl.values("servo")) <= set(range(h.SERVOS))
           and set(fx.sitl.values("motor")) <= set(range(h.MOTORS)))
 
 

@@ -83,7 +83,7 @@ def s2_long_gaps(fx):
 
 def s3_recover_disarmed_first(fx):
     """Recovery: disarmed frame first, then armed"""
-    new_pose = [1100, 1900, 1500, 1400, 1300]
+    new_pose = [1100, 1900, 1500, 1400, 1300, 1650]
     fx.settle(True)
     time.sleep(1.0)
     check("failsafe before the recovery", fx.motors() == IDLE, str(fx.motors()))
@@ -187,10 +187,10 @@ def s8_long_outage(fx):
     check("HEARTBEAT kept running through the outage (8-11 in ~9.4 s)", 8 <= len(beats) <= 11, "%d heartbeats" % len(beats))
     check("all HEARTBEATs of the outage report disarmed", all(not armed for _, armed in beats))
     check("motors min_command after the outage", fx.motors() == IDLE, str(fx.motors()))
-    fx.link.send_aux(False, RUN, [1100, 1200, 1300, 1400, 1500])
-    check("board responsive: servos follow the first frame", fx.wait_outputs(servos=[1100, 1200, 1300, 1400, 1500]) is not None,
+    fx.link.send_aux(False, RUN, [1100, 1200, 1300, 1400, 1500, 1600])
+    check("board responsive: servos follow the first frame", fx.wait_outputs(servos=[1100, 1200, 1300, 1400, 1500, 1600]) is not None,
           str(fx.servos()))
-    fx.link.frames(0.3, False, RUN, [1100, 1200, 1300, 1400, 1500])    # >= 5 valid frames: arm-edge check P1
+    fx.link.frames(0.3, False, RUN, [1100, 1200, 1300, 1400, 1500, 1600])    # >= 5 valid frames: arm-edge check P1
     fx.link.send_aux(True, RUN, POSE)
     check("armed frame: motors follow", fx.wait_outputs(motors=RUN) is not None, str(fx.motors()))
 

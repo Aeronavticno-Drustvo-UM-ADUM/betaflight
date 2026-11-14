@@ -17,6 +17,7 @@ test/
   test_03_frame_integrity.py    damaged, unusual and foreign frames
   test_04_gps_pvt.py            UBX NAV-PVT -> ADUM_GPS_PVT
   test_05_arming_safety.py      arming/safety rules of docs/arming_safety.md: states, arm edge, own-health checks, config lock, reporting
+  test_07_motor_test.py         motor test (MOTOR_TEST frames, section 14 MT1-MT10)
   tools/run_sitl.sh             stock or servo driver (--servo [--config]) SITL to run by hand (tcp://127.0.0.1:5761)
   tools/send_aux_channels.py    sends ADUM_AUX_CHANNELS to a real board over serial
   tools/check_mavlink_gen.sh    compares mavlink_gen.py byte for byte with the firmware headers (tools/mavlink_ref.c)
@@ -49,6 +50,7 @@ Timing checks use `time.monotonic()` of the sender and the timestamps of the `[s
 | 1 | test_03_frame_integrity | bad CRC, garbage, byte by byte, truncated frame, burst, unknown id / MAVLink 1 / wrong CRC_EXTRA, trimmed payload, other sysid/compid, signed frame |
 | 1 | test_04_gps_pvt | NAV-PVT conversion (fix types, flags, time, DOP) |
 | 1 | test_05_arming_safety | transitions + timing, FAILSAFE 60 s, every ARMED frame arms (D8), P1-P4 readiness (HEARTBEAT UNINIT + NOT READY text, armed anyway), unknown msgid ignored, config lock (CLI/MSP), motor writes every cycle per state (~150 Hz on SITL, 200 Hz bench), HEARTBEAT status, SYS_STATUS, parser reset, sd_* settings |
+| 1 | test_07_motor_test | MT1-MT3 follow/clamp/stay DISARMED, MT4 stop + 200 ms timeout, MT5 in ARMED/FAILSAFE, MT8 5 s lockout, MT9 boot grace, MT10 BLOCKED text, arming during a test |
 | 2 | (planned) | GPS faults, TX buffer saturation, configurator access while armed |
 | 3 | (planned) | soak, timer wrap, reboot, EEPROM |
 

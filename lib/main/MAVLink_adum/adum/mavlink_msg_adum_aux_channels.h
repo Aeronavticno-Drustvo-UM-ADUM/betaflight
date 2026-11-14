@@ -12,6 +12,7 @@ typedef struct __mavlink_adum_aux_channels_t {
  uint8_t arming_status;   // Arming status (ADUM_ARMING_STATUS):
                           //    0 DISARMED    Motors must not be driven.
                           //    1 ARMED       Motor values are valid commands.
+                          //    2 MOTOR_TEST  Master disarmed, motor test active: motors follow the frame (200 ms validity), satellite stays disarmed.
 } mavlink_adum_aux_channels_t;
 
 #define MAVLINK_MSG_ID_ADUM_AUX_CHANNELS_LEN 23
@@ -55,6 +56,7 @@ typedef struct __mavlink_adum_aux_channels_t {
  * @param arming_status  Arming status (ADUM_ARMING_STATUS):
  *       0 DISARMED    Motors must not be driven.
  *       1 ARMED       Motor values are valid commands.
+ *       2 MOTOR_TEST  Master disarmed, motor test active: motors follow the frame (200 ms validity), satellite stays disarmed.
  * @param motor [us] Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
  *   Index 0 is motor 1.
  * @param servo [us] Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
@@ -92,6 +94,7 @@ static inline uint16_t mavlink_msg_adum_aux_channels_pack(uint8_t system_id, uin
  * @param arming_status  Arming status (ADUM_ARMING_STATUS):
  *       0 DISARMED    Motors must not be driven.
  *       1 ARMED       Motor values are valid commands.
+ *       2 MOTOR_TEST  Master disarmed, motor test active: motors follow the frame (200 ms validity), satellite stays disarmed.
  * @param motor [us] Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
  *   Index 0 is motor 1.
  * @param servo [us] Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
@@ -132,6 +135,7 @@ static inline uint16_t mavlink_msg_adum_aux_channels_pack_status(uint8_t system_
  * @param arming_status  Arming status (ADUM_ARMING_STATUS):
  *       0 DISARMED    Motors must not be driven.
  *       1 ARMED       Motor values are valid commands.
+ *       2 MOTOR_TEST  Master disarmed, motor test active: motors follow the frame (200 ms validity), satellite stays disarmed.
  * @param motor [us] Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
  *   Index 0 is motor 1.
  * @param servo [us] Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
@@ -208,6 +212,7 @@ static inline uint16_t mavlink_msg_adum_aux_channels_encode_status(uint8_t syste
  * @param arming_status  Arming status (ADUM_ARMING_STATUS):
  *       0 DISARMED    Motors must not be driven.
  *       1 ARMED       Motor values are valid commands.
+ *       2 MOTOR_TEST  Master disarmed, motor test active: motors follow the frame (200 ms validity), satellite stays disarmed.
  * @param motor [us] Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
  *   Index 0 is motor 1.
  * @param servo [us] Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
@@ -283,6 +288,7 @@ static inline void mavlink_msg_adum_aux_channels_send_buf(mavlink_message_t *msg
  * @return  Arming status (ADUM_ARMING_STATUS):
  *       0 DISARMED    Motors must not be driven.
  *       1 ARMED       Motor values are valid commands.
+ *       2 MOTOR_TEST  Master disarmed, motor test active: motors follow the frame (200 ms validity), satellite stays disarmed.
  */
 static inline uint8_t mavlink_msg_adum_aux_channels_get_arming_status(const mavlink_message_t* msg)
 {

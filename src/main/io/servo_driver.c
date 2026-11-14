@@ -63,6 +63,9 @@
 #define SERVO_DRIVER_PULSE_INVALID      0       // 0 and UINT16_MAX in ADUM_AUX_CHANNELS mean "no value"
 #define SERVO_DRIVER_HEADING_MIN_SPEED  300     // mm/s, below this heading_motion is not flagged valid
 #define SERVO_DRIVER_DEFAULT_BAUD       BAUD_115200
+#define SERVO_DRIVER_MOTOR_TEST_TIMEOUT_MS 200 // MT4: motor test values are held at most this long without a fresh MOTOR_TEST frame
+
+#define SERVO_DRIVER_MOTOR_TEST_LOCKOUT_MS 5000 // MT8: MOTOR_TEST is ignored this long after leaving ARMED/FAILSAFE
 
 #define SERVO_DRIVER_LINK_READY_FRAMES  5       // P1: consecutive valid AUX frames
 #define SERVO_DRIVER_LINK_CRC_QUIET_US  1000000 // P1: no CRC error for this long
@@ -110,6 +113,12 @@ static mavlink_status_t rxStatus;
 
 static uint16_t motorPulse[SERVO_DRIVER_MOTOR_COUNT];
 static servoDriverState_e state;
+static bool motorTestActive;                    // MT: the master sends MOTOR_TEST frames while disarmed
+static timeUs_t lastMotorTestFrameUs;           // last MOTOR_TEST frame, the test values expire from here
+static uint16_t motorTestPulse[SERVO_DRIVER_MOTOR_COUNT];
+static bool leftArmedRecorded;                  // MT8: true once the satellite has left ARMED/FAILSAFE
+static timeUs_t leftArmedUs;                    // MT8: time of the last transition from ARMED/FAILSAFE to DISARMED
+static bool motorTestBlockedReported;           // MT8/MT9: "MOTOR TEST BLOCKED" already sent for this episode
 static bool sessionActive;      // link session: valid ADUM_AUX_CHANNELS seen and none missing for longer than the link timeout
 static bool prevFrameArmed;     // arming_status of the previous AUX frame of the session
 static uint8_t validFrames;     // consecutive valid AUX frames of the session (saturates), cleared by a parse/CRC error
@@ -304,12 +313,25 @@ static bool pulseValid(uint16_t pulseUs)
     return pulseUs != SERVO_DRIVER_PULSE_INVALID && pulseUs != UINT16_MAX;
 }
 
-// Motors are held at the minimum command (zero throttle) unless armed. Called every task cycle.
-static void servoDriverWriteMotors(void)
+// Motors are held at the minimum command (zero throttle) unless armed or in a fresh motor test. Called every task cycle.
+static void servoDriverWriteMotors(timeUs_t currentTimeUs)
 {
+    // Expire the motor test, so a stale flag can never come back
+    if (motorTestActive
+        && cmpTimeUs(currentTimeUs, lastMotorTestFrameUs) >= SERVO_DRIVER_MOTOR_TEST_TIMEOUT_MS * 1000) {
+        motorTestActive = false;
+    }
+    const bool useMotorTest = (state == SD_DISARMED) && motorTestActive;
+
     float values[SERVO_DRIVER_MOTOR_COUNT];
     for (int i = 0; i < SERVO_DRIVER_MOTOR_COUNT; i++) {
-        values[i] = (state == SD_ARMED) ? motorPulse[i] : motorConfig()->mincommand;
+        if (state == SD_ARMED) {
+            values[i] = motorPulse[i];
+        } else if (useMotorTest) {
+            values[i] = motorTestPulse[i];
+        } else {
+            values[i] = motorConfig()->mincommand;
+        }
         motor[i] = values[i];                       // reported over MSP_MOTOR (USB monitoring)
     }
     motorWriteAll(values);
@@ -346,6 +368,19 @@ static bool servoDriverSendStatusText(uint8_t severity, const char *text)
     return servoDriverSend(&msg);
 }
 
+// MT8/MT9: true when a MOTOR_TEST frame must be ignored (lockout after ARMED/FAILSAFE, or boot grace)
+static bool servoDriverMotorTestBlocked(timeUs_t currentTimeUs)
+{
+    if (!bootGraceDone) {
+        return true;
+    }
+    if (leftArmedRecorded
+        && cmpTimeUs(currentTimeUs, leftArmedUs) < SERVO_DRIVER_MOTOR_TEST_LOCKOUT_MS * 1000) {
+        return true;
+    }
+    return false;
+}
+
 // Changes the state; the cause is only recorded by the diagnostics
 static void servoDriverSetState(servoDriverState_e newState, servoDriverDiagCause_e cause)
 {
@@ -353,7 +388,12 @@ static void servoDriverSetState(servoDriverState_e newState, servoDriverDiagCaus
         return;
     }
     diagNoteTransition(state, newState, cause);
+    if (newState == SD_DISARMED && (state == SD_ARMED || state == SD_FAILSAFE)) {
+        leftArmedRecorded = true;                   // MT8: start of the motor test lockout
+        leftArmedUs = micros();
+    }
     state = newState;
+    motorTestActive = false;                        // every state change ends the motor test
     for (int i = 0; i < SERVO_DRIVER_MOTOR_COUNT; i++) {
         motorPulse[i] = motorConfig()->mincommand;
     }
@@ -483,6 +523,8 @@ static void servoDriverHandleAux(const mavlink_message_t *msg, timeUs_t currentT
     mavlink_adum_aux_channels_t aux;
     mavlink_msg_adum_aux_channels_decode(msg, &aux);
     const bool armedFrame = (aux.arming_status == ADUM_ARMING_STATUS_ARMED);
+    const bool motorTestFrame = (aux.arming_status == ADUM_ARMING_STATUS_MOTOR_TEST);
+    const servoDriverState_e stateBeforeFrame = state;   // MT5: a MOTOR_TEST frame in ARMED/FAILSAFE only disarms
 
     const bool newSession = !sessionActive;
     if (newSession) {
@@ -536,6 +578,39 @@ static void servoDriverHandleAux(const mavlink_message_t *msg, timeUs_t currentT
         } else {
             clamped++;
         }
+    }
+
+    // Motor test: only for MOTOR_TEST frames received while already disarmed; any other frame ends it
+    const bool motorTestAllowedState = (stateBeforeFrame == SD_DISARMED && state == SD_DISARMED && motorTestFrame);
+    const bool motorTestBlocked = motorTestAllowedState && servoDriverMotorTestBlocked(currentTimeUs);
+    if (motorTestBlocked) {
+        // MT8/MT9: ignore the frame, motors stay at mincommand; one warning per blocked episode
+        motorTestActive = false;
+        if (!motorTestBlockedReported) {
+            servoDriverSendStatusText(MAV_SEVERITY_WARNING, "MOTOR TEST BLOCKED");
+            motorTestBlockedReported = true;
+        }
+    } else if (motorTestAllowedState) {
+        motorTestBlockedReported = false;
+        if (!motorTestActive) {
+            servoDriverSendStatusText(MAV_SEVERITY_WARNING, "MOTOR TEST");  // MT6: test start
+        }
+        motorTestActive = true;
+        lastMotorTestFrameUs = currentTimeUs;
+        for (int i = 0; i < SERVO_DRIVER_MOTOR_COUNT; i++) {
+            if (pulseValid(aux.motor[i])) {
+                motorTestPulse[i] = constrain(aux.motor[i], motorConfig()->mincommand, motorConfig()->maxthrottle);
+                if (motorTestPulse[i] != aux.motor[i]) {
+                    clamped++;
+                }
+            } else {
+                motorTestPulse[i] = motorConfig()->mincommand;
+                clamped++;
+            }
+        }
+    } else {
+        motorTestActive = false;
+        motorTestBlockedReported = false;
     }
 
     // The motor values arrive in the same frame as the arming status, so they are never older than the arm state
@@ -662,7 +737,7 @@ void servoDriverInit(void)
         servoDriverWriteServo(i, servoConfig()->dev.servoCenterPulse);
     }
     motorEnable();
-    servoDriverWriteMotors();
+    servoDriverWriteMotors(micros());
 #ifdef STM32F10X
     servoDriverWatchdogStart();
 #endif
@@ -721,7 +796,7 @@ void servoDriverUpdate(timeUs_t currentTimeUs)
     servoDriverRecoverLink(currentTimeUs);
 
     // Motor output on every cycle in every state: the ESCs always see a continuous pulse train
-    servoDriverWriteMotors();
+    servoDriverWriteMotors(currentTimeUs);
 
     if (mavlinkPort) {
         const int32_t sinceTickUs = cmpTimeUs(currentTimeUs, lastTickUs);
@@ -741,6 +816,9 @@ void servoDriverUpdate(timeUs_t currentTimeUs)
             if (state == SD_DISARMED && readiness != READY) {
                 const bool textSent = servoDriverSendStatusText(MAV_SEVERITY_WARNING, notReadyText[readiness]);
                 diagNoteNotReadyText(textSent);
+            }
+            if (state == SD_DISARMED && motorTestActive) {
+                servoDriverSendStatusText(MAV_SEVERITY_WARNING, "MOTOR TEST");  // MT6: repeat at 1 Hz
             }
             servoDriverSendSysStatus();
             winAuxFrames = 0;

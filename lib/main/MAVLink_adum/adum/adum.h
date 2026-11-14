@@ -55,7 +55,8 @@ typedef enum ADUM_ARMING_STATUS
 {
    ADUM_ARMING_STATUS_DISARMED=0, /* Disarmed. The satellite board must not drive the motors (servos may still be driven, as the flight controller commands). | */
    ADUM_ARMING_STATUS_ARMED=1, /* Armed. The motor values are valid commands. | */
-   ADUM_ARMING_STATUS_ENUM_END=2, /*  | */
+   ADUM_ARMING_STATUS_MOTOR_TEST=2, /* Motor test: the flight controller is disarmed and its motor test is active. The satellite board stays disarmed (no arming, no failsafe) and drives motors 1-3 from the frame values, clamped to min_command..max_throttle. Valid for 200 ms after the last such frame, then the motors go to min_command. Ignored while the satellite is armed or in failsafe. | */
+   ADUM_ARMING_STATUS_ENUM_END=3, /*  | */
 } ADUM_ARMING_STATUS;
 #endif
 

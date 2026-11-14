@@ -313,7 +313,7 @@ def s1_transitions(fx):
     # ARMED -> FAILSAFE -> DISARMED
     fx.link.gap(0.9)
     check("second FAILSAFE: motors min_command", fx.motors() == IDLE, str(fx.motors()))
-    new_pose = [1100, 1900, 1500, 1400, 1300]
+    new_pose = [1100, 1900, 1500, 1400, 1300, 1650]
     t_back = fx.link.send_aux(False, RUN, new_pose)
     wait = fx.wait_outputs(servos=new_pose, timeout=0.5)
     check("FAILSAFE->DISARMED: servos follow the disarmed frame", wait is not None, str(fx.servos()))
@@ -606,7 +606,7 @@ def s12_parser_reset(fx):
     """Parser reset after 1 s of silence: truncated frame, 1.5 s silence, valid frame applied at once"""
     wait_boot(fx)
     disarmed(fx, 0.5)
-    new_pose = [1100, 1900, 1500, 1400, 1300]
+    new_pose = [1100, 1900, 1500, 1400, 1300, 1650]
     fx.link.send(fx.link.gen.aux_channels(False, RUN, new_pose)[:15])            # header and a part of the payload
     time.sleep(1.5)
     fx.link.send_aux(False, RUN, new_pose)

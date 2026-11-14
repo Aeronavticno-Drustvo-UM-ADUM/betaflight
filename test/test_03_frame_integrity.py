@@ -25,7 +25,7 @@ from common import harness as h  # noqa: E402
 from common.harness import RUN, POSE, IDLE, check, known_issue  # noqa: E402
 
 mav = h.mav
-POSE_B = [1100, 1900, 1500, 1400, 1300]      # differs from POSE in every servo
+POSE_B = [1100, 1900, 1500, 1400, 1300, 1650]      # differs from POSE in every servo
 RUN_B = [1250, 1350, 1450]
 recovery_frames = []                          # N of every truncated-frame experiment
 
@@ -107,7 +107,7 @@ def s2_garbage(fx):
 def s3_byte_by_byte(fx):
     """Frame delivered byte by byte with 1 ms gaps"""
     fx.settle(True)
-    for k, pose in enumerate((POSE_B, [1111, 1222, 1333, 1444, 1555], POSE)):
+    for k, pose in enumerate((POSE_B, [1111, 1222, 1333, 1444, 1555, 1666], POSE)):
         frame = aux_frame(fx, True, RUN_B, pose)
         t0 = time.monotonic()
         for byte in frame:
@@ -184,10 +184,10 @@ def s7_trimmed_payload(fx):
     # wire order is motor[3], servo[8], arming_status: an armed frame always ends with the non-zero arming byte,
     # so only disarmed frames can be trimmed (arming_status 0 and the trailing zero servo values drop out).
     fx.settle(True)
-    frame = aux_frame(fx, False, [0, 0, 0], [1100, 1200, 1300, 1400, 1500, 0, 0, 0])
+    frame = aux_frame(fx, False, [0, 0, 0], [1100, 1200, 1300, 1400, 1500, 1600, 0, 0])
     check("frame is really trimmed (payload < 23 bytes)", frame[1] < 23, "payload %d bytes" % frame[1])
     fx.link.send_aux_frame(frame)
-    wait = fx.wait_outputs(servos=[1100, 1200, 1300, 1400, 1500], motors=IDLE)
+    wait = fx.wait_outputs(servos=[1100, 1200, 1300, 1400, 1500, 1600], motors=IDLE)
     check("trimmed disarmed frame: servos applied, missing arming byte = disarmed", wait is not None,
           "servos %s motors %s" % (fx.servos(), fx.motors()))
     fx.settle(True)
@@ -200,7 +200,7 @@ def s7_trimmed_payload(fx):
     fx.settle(True)
     frame = aux_frame(fx, False, RUN, [1111, 1222, 1333, None, None, None, None, None])
     fx.link.send_aux_frame(frame)
-    wait = fx.wait_outputs(servos=[1111, 1222, 1333, POSE[3], POSE[4]], motors=IDLE)
+    wait = fx.wait_outputs(servos=[1111, 1222, 1333, POSE[3], POSE[4], POSE[5]], motors=IDLE)
     check("full-length disarmed frame still works", wait is not None and fx.servos()[:3] == [1111, 1222, 1333],
           str(fx.servos()))
     # armed frame whose payload is cut right after the servos: arming_status missing = 0 = disarmed
@@ -217,7 +217,7 @@ def s8_other_ids(fx):
     fx.settle(False)
     for sysid, compid in ((42, 200), (0, 0), (255, 190)):
         gen = mav.MavlinkGenerator(sysid, compid)
-        pose = [1100 + sysid, 1200 + sysid, 1300, 1400, 1500]
+        pose = [1100 + sysid, 1200 + sysid, 1300, 1400, 1500, 1600]
         fx.link.send_aux_frame(gen.aux_channels(True, RUN_B, pose))
         wait = fx.wait_outputs(servos=pose, motors=RUN_B)
         check("sysid %d compid %d accepted" % (sysid, compid), wait is not None, "servos %s motors %s" % (fx.servos(), fx.motors()))

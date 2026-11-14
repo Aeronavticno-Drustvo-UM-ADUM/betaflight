@@ -16,7 +16,7 @@ Rules:
 |---|---|---|---|
 | 13000 | `ADUM_GPS_PVT` | GPS-RTK module -> FC | Position, velocity, time, accuracy, fix/RTK state |
 | 13001 | `ADUM_MAGNETOMETER` | sensor -> FC | Magnetometer sample; same fields as MSP2_SENSOR_COMPASS (instance, time, X/Y/Z in mGauss: front, right, down) |
-| 13002 | `ADUM_AUX_CHANNELS` | FC -> satellite board | `arming_status` (`ADUM_ARMING_STATUS`), `motor[3]` (motors 1-3), `servo[8]` (servos 1-8); values in us as INAV `motor[]`/`servo[]` |
+| 13002 | `ADUM_AUX_CHANNELS` | FC -> satellite board | `arming_status` (`ADUM_ARMING_STATUS`), `motor[3]` (motors 1-3), `servo[8]` (servos 1-8); values in us as INAV `motor[]`/`servo[]`. `ADUM_ARMING_STATUS`: 0 DISARMED, 1 ARMED, 2 MOTOR_TEST (master disarmed, motor test active; satellite stays disarmed and drives motors 1-3 from the frame, 200 ms validity) |
 
 `ADUM_GPS_PVT` units: `lat`/`lon` degE7, `alt_*` mm, `vel_*` mm/s, `heading_motion` degE5,
 `*_acc` mm or mm/s, `pdop` x100. `fix_type` uses the standard `GPS_FIX_TYPE`

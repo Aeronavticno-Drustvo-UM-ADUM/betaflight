@@ -31,10 +31,10 @@ CLI_PORT, MAVLINK_PORT, GPS_PORT = 5761, 5762, 5763
 CONFIG_OVERRIDES = ["set gps_auto_config = OFF"]   # the fake module does not answer the setup commands
 
 CENTRE, MOTOR_MIN, MOTOR_MAX = 1500, 1000, 2000   # servo_center_pulse, min_command, max_throttle in servo_config.txt
-SERVOS, MOTORS = 5, 3
+SERVOS, MOTORS = 6, 3                                        # SERVO_DRIVER_SERVO_COUNT / MOTOR_COUNT (servo_driver.h)
 FAILSAFE_TIMEOUT_S = 0.5                           # servo_driver.c: no ADUM_AUX_CHANNELS for 500 ms -> disarm
 IDLE = [MOTOR_MIN] * MOTORS
-POSE = [1800, 1200, 1700, 1300, 1600]              # servo pulses in us, avoid bytes 0xFD in the little-endian words
+POSE = [1800, 1200, 1700, 1300, 1600, 1450]              # servo pulses in us, avoid bytes 0xFD in the little-endian words
 RUN = [1500, 1600, 1700]                           # motor pulses in us
 
 # ---------------------------------------------------------------- reporting
