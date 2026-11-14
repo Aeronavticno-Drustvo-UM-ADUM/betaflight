@@ -99,7 +99,7 @@
       <field type="uint16_t[3]" name="motor" units="us">Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
         Index 0 is motor 1.</field>
       <field type="uint16_t[8]" name="servo" units="us">Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
-        Index 0 is servo 1.</field>
+        Index 0 is INAV servo 1 (servo[1]), index 7 is INAV servo 8; INAV servo 0 is not sent.</field>
     </message>
   </messages>
 </mavlink>

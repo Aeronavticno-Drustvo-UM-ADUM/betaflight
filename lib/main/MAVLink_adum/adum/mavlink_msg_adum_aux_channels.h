@@ -8,7 +8,7 @@ typedef struct __mavlink_adum_aux_channels_t {
  uint16_t motor[3];       // [us] Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
                           // Index 0 is motor 1.
  uint16_t servo[8];       // [us] Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
-                          // Index 0 is servo 1.
+                          // Index 0 is INAV servo 1 (servo[1]), index 7 is INAV servo 8; INAV servo 0 is not sent.
  uint8_t arming_status;   // Arming status (ADUM_ARMING_STATUS):
                           //    0 DISARMED    Motors must not be driven.
                           //    1 ARMED       Motor values are valid commands.
@@ -60,7 +60,7 @@ typedef struct __mavlink_adum_aux_channels_t {
  * @param motor [us] Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
  *   Index 0 is motor 1.
  * @param servo [us] Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
- *   Index 0 is servo 1.
+ *   Index 0 is INAV servo 1 (servo[1]), index 7 is INAV servo 8; INAV servo 0 is not sent.
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_adum_aux_channels_pack(uint8_t system_id, uint8_t component_id, mavlink_message_t* msg,
@@ -98,7 +98,7 @@ static inline uint16_t mavlink_msg_adum_aux_channels_pack(uint8_t system_id, uin
  * @param motor [us] Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
  *   Index 0 is motor 1.
  * @param servo [us] Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
- *   Index 0 is servo 1.
+ *   Index 0 is INAV servo 1 (servo[1]), index 7 is INAV servo 8; INAV servo 0 is not sent.
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_adum_aux_channels_pack_status(uint8_t system_id, uint8_t component_id, mavlink_status_t *_status, mavlink_message_t* msg,
@@ -139,7 +139,7 @@ static inline uint16_t mavlink_msg_adum_aux_channels_pack_status(uint8_t system_
  * @param motor [us] Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
  *   Index 0 is motor 1.
  * @param servo [us] Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
- *   Index 0 is servo 1.
+ *   Index 0 is INAV servo 1 (servo[1]), index 7 is INAV servo 8; INAV servo 0 is not sent.
  * @return length of the message in bytes (excluding serial stream start sign)
  */
 static inline uint16_t mavlink_msg_adum_aux_channels_pack_chan(uint8_t system_id, uint8_t component_id, uint8_t chan,
@@ -216,7 +216,7 @@ static inline uint16_t mavlink_msg_adum_aux_channels_encode_status(uint8_t syste
  * @param motor [us] Motor 1-3 output, as the INAV motor[] value (pulse width in microseconds).
  *   Index 0 is motor 1.
  * @param servo [us] Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
- *   Index 0 is servo 1.
+ *   Index 0 is INAV servo 1 (servo[1]), index 7 is INAV servo 8; INAV servo 0 is not sent.
  */
 #ifdef MAVLINK_USE_CONVENIENCE_FUNCTIONS
 
@@ -310,7 +310,7 @@ static inline uint16_t mavlink_msg_adum_aux_channels_get_motor(const mavlink_mes
  * @brief Get field servo from adum_aux_channels message
  *
  * @return [us] Servo 1-8 output, as the INAV servo[] value (pulse width in microseconds).
- *   Index 0 is servo 1.
+ *   Index 0 is INAV servo 1 (servo[1]), index 7 is INAV servo 8; INAV servo 0 is not sent.
  */
 static inline uint16_t mavlink_msg_adum_aux_channels_get_servo(const mavlink_message_t* msg, uint16_t *servo)
 {
