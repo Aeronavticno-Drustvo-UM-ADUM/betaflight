@@ -6,6 +6,7 @@ Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-1
 - **MOTOR_TEST** (`docs/arming_safety.md` section 14, MT1-MT10): `arming_status` 2 from the master while it is disarmed with its motor test active; the board stays DISARMED and drives motors 1-3 from the frame (200 ms validity). Ignored in ARMED/FAILSAFE (only disarms), 5 s lockout after leaving ARMED/FAILSAFE, blocked in boot grace; "MOTOR TEST" / "MOTOR TEST BLOCKED" STATUSTEXT. SITL `test/test_07_motor_test.py` 49/49 x3.
 - Dialect: `lib/main/MAVLink_adum` synced from INAV (`diff -rq ../inav/lib/main/MAVLink lib/main/MAVLink_adum` = only README + INAV generator files). Keep both identical.
 - SITL suite: 7 tests, all pass; harness and tests 01-03, 05 updated to 6 servos.
+- SERVO-1 (INAV `b69045b2d`): INAV now fills AUX servo slot 0 from INAV servo 1 (servo 0 not sent). Board side unchanged (slot 0 = S1); dialect description synced (`68a52508b`, text only, `check_mavlink_gen.sh` passes).
 - USB monitoring: `servo_driver.c` fills `servo[]`/`motor[]` and FAILSAFE_MODE for MSP (no effect on outputs: PID/mixer tasks never run). Tools: `test/tools/sat_usb_monitor.py`, `sat_monitor.py` (SWD), `send_aux_channels.py --pinout/--output O1..O9`.
 - Board flashed 2026-11-14 with `2ea0609c2`; link with EVIS up. `test/hw/` suites and `hw_output_check.py` updated to the new pins and standard PWM (6 servos, motor pulse = command, CCR read without a halt): compile-checked only, **not run yet** (needs FTDI on satellite UART1). The INAV combined suite passes on the new pinout (254/254).
 
