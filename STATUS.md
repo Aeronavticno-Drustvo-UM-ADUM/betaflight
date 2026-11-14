@@ -2,6 +2,13 @@
 
 Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-11-13); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench (L3): rerunnable standalone suite `test/hw/` hw_01-04 **PASS** (2026-11-13), combined suites with INAV EVIS_FC pass (INAV repo). Report: `docs/hw_bench_report.md`. Flight readiness plan: INAV `docs/adum/flight_readiness.md` (A1-A4 done; next: OneShot bench research, INAV TODO ONESHOT-BENCH). Not yet tested in the aircraft.
 
+## Session 2026-11-14 (handover; master list: INAV `docs/adum/TODO.md`, INAV `STATUS.md` "Next session")
+- **MOTOR_TEST** (`docs/arming_safety.md` section 14, MT1-MT10): `arming_status` 2 from the master while it is disarmed with its motor test active; the board stays DISARMED and drives motors 1-3 from the frame (200 ms validity). Ignored in ARMED/FAILSAFE (only disarms), 5 s lockout after leaving ARMED/FAILSAFE, blocked in boot grace; "MOTOR TEST" / "MOTOR TEST BLOCKED" STATUSTEXT. SITL `test/test_07_motor_test.py` 49/49 x3.
+- Dialect: `lib/main/MAVLink_adum` synced from INAV (`diff -rq ../inav/lib/main/MAVLink lib/main/MAVLink_adum` = only README + INAV generator files). Keep both identical.
+- SITL suite: 7 tests, all pass; harness and tests 01-03, 05 updated to 6 servos.
+- USB monitoring: `servo_driver.c` fills `servo[]`/`motor[]` and FAILSAFE_MODE for MSP (no effect on outputs: PID/mixer tasks never run). Tools: `test/tools/sat_usb_monitor.py`, `sat_monitor.py` (SWD), `send_aux_channels.py --pinout/--output O1..O9`.
+- Board flashed 2026-11-14 with `2ea0609c2`; link with EVIS up. `test/hw/` suites and `hw_output_check.py` still use the old pins/OneShot (INAV TODO PINOUT-9 step 4).
+
 ## Pinout change (2026-11-14)
 Target now: outputs O1-O9 (docs/adum/sat_pinout.png): servos S1-S6 on O1 O9 O2 O8 O3 O7 (PA6 PB1 PA7 PB3 PB0 PA15, TIM3/TIM2), motors M1-M3 on O4 O6 O5 (PA8 PA9 PA10, TIM1 only, DShot-capable DMA later); readme table. Names: O = PCB header, S = servo, M = motor (frame index). Board always boots on the compiled defaults in `target/SATELLITEBOARD/config.c` (MAVLink UART1, GPS UART2, standard PWM motors 50 Hz); saved config never loaded (`USE_CONFIG_DEFAULTS_ONLY`, `config/config.c`). Flashed, link up on defaults, motors 50 Hz verified (not committed yet). Owner checked all outputs with `send_aux_channels.py --output` (2026-11-14). Monitors: `test/tools/sat_usb_monitor.py` (USB), `sat_monitor.py` (SWD). Bench tools/tests still on the old pins: master list INAV `docs/adum/TODO.md` PINOUT-9.
 
@@ -55,6 +62,6 @@ Setup, details also in the INAV repo memory/STATUS:
 - Bench test plan: IWDG reset/brownout while armed, `save` vs IWDG, 200 Hz motor pulse on scope, ESC on failsafe/recovery, UART noise/cable pull/re-init, P5, GPS M10.
 - SITL phase 2: GPS faults, TX buffer saturation, configurator access while armed.
 - SITL phase 3: soak, timer wrap, reboot, EEPROM.
-- Open owner decisions (`TODO.md`): E default serial config, G TX drop counter, J IWDG vs `bl`. M, N, O, P, X closed by D8 (2026-11-13); EC fixed (2026-11-13).
+- Open owner decisions (`TODO.md`): G TX drop counter, J IWDG vs `bl`; E done 2026-11-14 (compiled defaults, saved config never loaded). M, N, O, P, X closed by D8 (2026-11-13); EC fixed (2026-11-13).
 - INAV <-> satellite SITL suite: INAV repo `src/test/adum/sitl/`, report `docs/adum/satellite_test_report.md` (findings F1-F10); now 19 tests, 482 checks, 0 failed (2026-11-13).
-- Pushed to origin 2026-11-13 (fast-forward, owner request). Push only on request.
+- Pushed to origin 2026-11-13; 2026-11-14 commits local only. Push only on request.
