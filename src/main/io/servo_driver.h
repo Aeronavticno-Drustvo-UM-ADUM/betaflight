@@ -28,7 +28,7 @@
 // Servo driver mode: the flight controller core (gyro, PID, RX, mixer) is not run.
 // The master flight controller sends MAVLink 2.0 ADUM_AUX_CHANNELS (arming status, servo[8], motor[3] in us).
 // Arming and safety rules: docs/arming_safety.md (states DISARMED / ARMED / FAILSAFE, link sessions, arm-edge rule).
-// - servos 1-5 always follow valid frames in every state (500-2500 us clamp), they hold the last value in failsafe
+// - servos 1-6 always follow valid frames in every state (500-2500 us clamp), they hold the last value in failsafe
 // - motors 1-3 follow armed frames only, minimum command otherwise; written every task cycle
 // - no valid ADUM_AUX_CHANNELS for sd_link_timeout_ms while armed: FAILSAFE (never times out)
 // The board answers with HEARTBEAT, SYS_STATUS, STATUSTEXT and ADUM_GPS_PVT.
@@ -40,7 +40,7 @@ typedef struct servoDriverConfig_s {
 
 PG_DECLARE(servoDriverConfig_t, servoDriverConfig);
 
-#define SERVO_DRIVER_SERVO_COUNT   5
+#define SERVO_DRIVER_SERVO_COUNT   6
 #define SERVO_DRIVER_MOTOR_COUNT   3
 
 void servoDriverInit(void);

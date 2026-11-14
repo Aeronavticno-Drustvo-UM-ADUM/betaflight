@@ -65,6 +65,10 @@ for all its channels, so servos never share a timer with the motors.
   (`USE_DSHOT` is set from F3 up in `common_pre.h`): DShot here would be a port.
 - TIM1 is an advanced timer: outputs need MOE (main output enable), checked by the bench pin test.
 
+**Config:** the board always boots on compiled defaults (`target/SATELLITEBOARD/config.c`: MAVLink on UART1 115200, GPS on
+UART2, motors standard PWM 50 Hz 1000-2000 us). A saved config is never loaded (`USE_CONFIG_DEFAULTS_ONLY`, `config/config.c`
+`readEEPROM()`): CLI `set`/`save` changes last only until the next reboot. To change the config, edit `config.c` and flash.
+
 ## How it works
 
 - `USE_SERVO_DRIVER` (set in `target.h`) removes the gyro, filter, PID, accelerometer, attitude and RX tasks and the matching init in `main()`. They are replaced by one task (200 Hz target rate; about 150 Hz on SITL), `src/main/io/servo_driver.c`.

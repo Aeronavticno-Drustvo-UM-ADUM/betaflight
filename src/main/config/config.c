@@ -726,8 +726,14 @@ bool readEEPROM(void)
 {
     suspendRxSignal();
 
+#ifdef USE_CONFIG_DEFAULTS_ONLY
+    // ADUM satellite: the compiled defaults are the only config, a saved config is never loaded
+    resetConfig();
+    bool success = true;
+#else
     // Sanity check, read flash
     bool success = loadEEPROM();
+#endif
 
     featureInit();
 

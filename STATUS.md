@@ -2,6 +2,9 @@
 
 Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-11-13); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench (L3): rerunnable standalone suite `test/hw/` hw_01-04 **PASS** (2026-11-13), combined suites with INAV EVIS_FC pass (INAV repo). Report: `docs/hw_bench_report.md`. Flight readiness plan: INAV `docs/adum/flight_readiness.md` (A1-A4 done; next: OneShot bench research, INAV TODO ONESHOT-BENCH). Not yet tested in the aircraft.
 
+## Pinout change (2026-11-14)
+Target now: motors 1-3 on S4 S5 S6 (PA8, PA10, PA9, TIM1 only, DShot-capable DMA later), servos 1-6 on S1 S2 S3 S7 S8 S9 (TIM3, TIM2); readme table + `docs/adum/sat_pinout.png`. Board always boots on the compiled defaults in `target/SATELLITEBOARD/config.c` (MAVLink UART1, GPS UART2, standard PWM motors 50 Hz); saved config never loaded (`USE_CONFIG_DEFAULTS_ONLY`, `config/config.c`). Flashed, link up on defaults, motors 50 Hz verified (not committed yet). Next: owner scope check of S1-S9. Bench tools/tests still on the old pins: master list INAV `docs/adum/TODO.md` PINOUT-9.
+
 ## Arming rule D8 (2026-11-13)
 Owner: the master is primary. The board never refuses an ARMED frame; readiness P1-P5 is reported only (HEARTBEAT `STANDBY` ready / `UNINIT` not ready, STATUSTEXT `NOT READY: <code>` at 1 Hz); unknown message ids are ignored. Master requirements for INAV: `docs/arming_safety.md` section 11; message id rules section 12; accepted ground cases section 13.
 - SITL: full suite 310 checks, 0 failed, 1 known, 0 restarts (test_05 136, test_06 29).

@@ -28,20 +28,18 @@
 #include "drivers/timer_def.h"
 
 const timerHardware_t timerHardware[USABLE_TIMER_CHANNEL_COUNT] = {
-    // Servos 1-5 (each timer has its own PWM rate, so servos and motors do not share one)
-    DEF_TIM(TIM2, CH1, PA15, TIM_USE_SERVO, 0),
-    DEF_TIM(TIM2, CH2, PB3,  TIM_USE_SERVO, 0),
-    DEF_TIM(TIM1, CH1, PA8,  TIM_USE_SERVO, 0),
-    DEF_TIM(TIM1, CH2, PA9,  TIM_USE_SERVO, 0),
-    DEF_TIM(TIM1, CH3, PA10, TIM_USE_SERVO, 0),
+    // Servos 1-6 on TIM3 and TIM2, in PCB label order (S1, S2, S3, S7, S8, S9); one PWM rate per timer
+    DEF_TIM(TIM3, CH1, PA6,  TIM_USE_SERVO, 0),     // S1
+    DEF_TIM(TIM3, CH2, PA7,  TIM_USE_SERVO, 0),     // S2
+    DEF_TIM(TIM3, CH3, PB0,  TIM_USE_SERVO, 0),     // S3
+    DEF_TIM(TIM2, CH1, PA15, TIM_USE_SERVO, 0),     // S7
+    DEF_TIM(TIM2, CH2, PB3,  TIM_USE_SERVO, 0),     // S8
+    DEF_TIM(TIM3, CH4, PB1,  TIM_USE_SERVO, 0),     // S9
 
-    // Motors 1-3
-    DEF_TIM(TIM3, CH1, PA6,  TIM_USE_MOTOR, 0),
-    DEF_TIM(TIM3, CH3, PB0,  TIM_USE_MOTOR, 0),
-    DEF_TIM(TIM3, CH4, PB1,  TIM_USE_MOTOR, 0),
-
-    // PA7 is left unused: TIM3 CH2 would share the motor timer rate
-    DEF_TIM(TIM3, CH2, PA7,  TIM_USE_NONE,  0),
+    // Motors 1-3 alone on TIM1 (DShot-capable later: DMA1 Ch2, Ch6, Ch3, none used by another peripheral here)
+    DEF_TIM(TIM1, CH1, PA8,  TIM_USE_MOTOR, 0),     // S4
+    DEF_TIM(TIM1, CH3, PA10, TIM_USE_MOTOR, 0),     // S5
+    DEF_TIM(TIM1, CH2, PA9,  TIM_USE_MOTOR, 0),     // S6
 };
 
 // Pin remaps the PCB needs (the F103 default pins differ). Called from init() after systemInit(), before timers and UARTs.

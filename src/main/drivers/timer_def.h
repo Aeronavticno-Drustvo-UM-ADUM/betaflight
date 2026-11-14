@@ -167,7 +167,7 @@
 /* add F1 DMA mappings here */
 // D(dma_n, channel_n)
 #define DEF_TIM_DMA__BTCH_TIM1_CH1    D(1, 2)
-#define DEF_TIM_DMA__BTCH_TIM1_CH2    NONE
+#define DEF_TIM_DMA__BTCH_TIM1_CH2    D(1, 3)
 #define DEF_TIM_DMA__BTCH_TIM1_CH3    D(1, 6)
 #define DEF_TIM_DMA__BTCH_TIM1_CH4    D(1, 4)
 

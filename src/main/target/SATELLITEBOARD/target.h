@@ -25,6 +25,10 @@
 // Pin remaps in target.c targetPreInit()
 #define TARGET_PREINIT
 
+// Board defaults in config.c targetConfiguration(): MAVLink on UART1, GPS on UART2, PWM motors
+#define USE_TARGET_CONFIG
+#define USE_CONFIG_DEFAULTS_ONLY  // never load a saved config: always boot on the defaults above (config/config.c readEEPROM)
+
 // Servo driver only: no real sensors, config over MSP, MAVLink telemetry
 #define LED0_PIN                PC15
 
