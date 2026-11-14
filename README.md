@@ -26,19 +26,50 @@ Branch: `master+adum+sat`. Rules for agents: [`CLAUDE.md`](CLAUDE.md).
 
 | Function | Pins |
 |---|---|
-| Servos 1-5 | PA15, PB3 (TIM2, partial remap 1), PA8, PA9, PA10 (TIM1) |
-| Motors 1-3 | PA6, PB0, PB1 (TIM3). PA7 is left unused so the motor timer is not shared |
+| Servos 1-6 | PA6, PA7, PB0, PB1 (TIM3), PA15, PB3 (TIM2, partial remap 1) |
+| Motors 1-3 | PA8, PA10, PA9 (TIM1, motors only) |
 | UART1 / UART2 / UART3 | PB7 RX, PB6 TX (link to the master, remapped) / PA3 RX, PA2 TX (GPS connector) / PB11 RX, PB10 TX (free) |
 | USB virtual COM port | for the configurator |
 | LED | PC15 |
 
-Pin remaps (UART1, TIM2) are set in `targetPreInit()` in `target.c`, which also switches SWD back on. Config for the real board: `test/servo_config_board.txt` (MAVLink on UART1, GPS on UART2); `test/servo_config.txt` is the SITL variant (MAVLink on UART2). Motors are the TIM3 pins with DMA (PA6, PB0, PB1) for later DShot.
+![SatelliteWing V0.1 pinout](docs/adum/sat_pinout.png)
+
+Board pinout (SatelliteWing V0.1): S1-S9 output headers (pin order G V S on the left, S V G on the right), UART2 + I2C1
+connector (GPS), UART3 header (G 5V T3 R3), SWD header (G C D 3V), ESC and battery pads, master link pads (TX, RX, +5_FC).
+
+Output connectors (PCB label S1-S9) and their use in the SATELLITEBOARD target (`target.c`, 2026-11-14). Design:
+9 outputs = 3 motors alone on TIM1 (DShot-capable later) + 6 PWM servos on TIM3 and TIM2. A timer has one period
+for all its channels, so servos never share a timer with the motors.
+
+| Output | Type | MCU pin | Timer | DMA1 channel (also requested by) | DMA |
+|---|---|---|---|---|---|
+| S1 | Servo 1 | PA6 | TIM3_CH1 | Ch6 | NO (servo) |
+| S2 | Servo 2 | PA7 | TIM3_CH2 | none | NO (servo) |
+| S3 | Servo 3 | PB0 | TIM3_CH3 | Ch2 | NO (servo) |
+| S4 | Motor 1 | PA8 | TIM1_CH1 | Ch2 (SPI1_RX, USART3_TX) | YES |
+| S5 | Motor 2 | PA10 | TIM1_CH3 | Ch6 (USART2_RX, I2C1_TX) | YES |
+| S6 | Motor 3 | PA9 | TIM1_CH2 | Ch3 (SPI1_TX, USART3_RX) | YES |
+| S7 | Servo 4 | PA15 | TIM2_CH1 | Ch5 | NO (servo) |
+| S8 | Servo 5 | PB3 | TIM2_CH2 | Ch7 | NO (servo) |
+| S9 | Servo 6 | PB1 | TIM3_CH4 | Ch3 | NO (servo) |
+
+- Servo n / Motor n = the index in the AUX frame from the master. Servos are plain PWM and need no DMA.
+- DMA1 request map of the STM32F103 (RM0008; double-checked 2026-11-14): Ch1 ADC1; Ch2 USART3_TX, SPI1_RX, TIM1_CH1;
+  Ch3 USART3_RX, SPI1_TX, TIM1_CH2; Ch4 USART1_TX; Ch5 USART1_RX, TIM1_UP; Ch6 USART2_RX, I2C1_TX, TIM1_CH3;
+  Ch7 USART2_TX, I2C1_RX. Requests on one channel are ORed, so a channel is lost only when two of its peripherals
+  enable DMA. In this firmware only UART1 (master link) uses DMA (Ch4, Ch5, `common_pre.h`); UART2/UART3 and I2C run
+  without DMA. So the motor channels Ch2, Ch3, Ch6 are free: keep SPI1, UART2, UART3 and I2C1 without DMA.
+- DShot: per channel (Ch2, Ch6, Ch3). Burst mode would need TIM1_UP = Ch5, taken by UART1 RX.
+  Betaflight's F1 table had TIM1_CH2 as NONE; corrected to Ch3 (`drivers/timer_def.h`).
+- Today nothing on the outputs uses DMA (servos PWM, motors OneShot125). Betaflight has no DShot for F1
+  (`USE_DSHOT` is set from F3 up in `common_pre.h`): DShot here would be a port.
+- TIM1 is an advanced timer: outputs need MOE (main output enable), checked by the bench pin test.
 
 ## How it works
 
 - `USE_SERVO_DRIVER` (set in `target.h`) removes the gyro, filter, PID, accelerometer, attitude and RX tasks and the matching init in `main()`. They are replaced by one task (200 Hz target rate; about 150 Hz on SITL), `src/main/io/servo_driver.c`.
 - The master flight controller talks MAVLink 2.0 with the ADUM dialect (`lib/main/MAVLink_adum`, generated from `adum.xml` in the INAV fork; MAVLink 1.0 headers stay for the other targets). Put the **MAVLink** telemetry function on a UART (Ports tab or CLI `serial`, 115200 baud). `test/servo_config.txt` is a ready CLI configuration, GPS included.
-- **`ADUM_AUX_CHANNELS`** (id 13002) from the master: `arming_status`, `servo[8]`, `motor[3]` in us. The board outputs servos 1-5 and motors 1-3; servos 6-8 are ignored. 0 and 65535 mean "no value". sysid/compid are not checked yet.
+- **`ADUM_AUX_CHANNELS`** (id 13002) from the master: `arming_status`, `servo[8]`, `motor[3]` in us. The board outputs servos 1-6 and motors 1-3; servos 7-8 are ignored. 0 and 65535 mean "no value". sysid/compid are not checked yet.
 - **Servos** always move to the pulse that arrives, armed or not. The configurator servo limits are ignored; only a 500-2500 us clamp applies. Before the first frame they sit at `servo_center_pulse`.
 - **Motors** stay at zero throttle (`min_command` pulse) unless the board is ARMED. The motor values of an armed frame are applied at once; a disarmed frame sets the motors to zero. Values are clamped to `min_command`..`max_throttle`. The motor output is written on every task cycle (200 Hz target) in every state, so the ESCs always see a continuous pulse train.
 - **Arming** is controlled by `ADUM_AUX_CHANNELS` only; the master is primary (D8). Every ARMED frame arms, whatever the readiness. Readiness (own-health checks: `LINK`, `BOOT_GRACE`, `MOTOR_CONFIG`, `CONFIG_ACTIVE`) is only reported: HEARTBEAT `STANDBY` = ready, `UNINIT` = not ready, plus a 1 Hz `STATUSTEXT` `NOT READY: <reason>` while disarmed and not ready.
