@@ -26,34 +26,35 @@ Branch: `master+adum+sat`. Rules for agents: [`CLAUDE.md`](CLAUDE.md).
 
 | Function | Pins |
 |---|---|
-| Servos 1-6 | PA6, PA7, PB0, PB1 (TIM3), PA15, PB3 (TIM2, partial remap 1) |
-| Motors 1-3 | PA8, PA10, PA9 (TIM1, motors only) |
+| Servos S1-S6 | PA6, PB1, PA7, PB3, PB0, PA15 (TIM3; TIM2 with partial remap 1) |
+| Motors M1-M3 | PA8, PA9, PA10 (TIM1, motors only) |
 | UART1 / UART2 / UART3 | PB7 RX, PB6 TX (link to the master, remapped) / PA3 RX, PA2 TX (GPS connector) / PB11 RX, PB10 TX (free) |
 | USB virtual COM port | for the configurator |
 | LED | PC15 |
 
 ![SatelliteWing V0.1 pinout](docs/adum/sat_pinout.png)
 
-Board pinout (SatelliteWing V0.1): S1-S9 output headers (pin order G V S on the left, S V G on the right), UART2 + I2C1
+Board pinout (SatelliteWing V0.1): output headers O1-O9 (pin order G V S on the left, S V G on the right), UART2 + I2C1
 connector (GPS), UART3 header (G 5V T3 R3), SWD header (G C D 3V), ESC and battery pads, master link pads (TX, RX, +5_FC).
 
-Output connectors (PCB label S1-S9) and their use in the SATELLITEBOARD target (`target.c`, 2026-11-14). Design:
-9 outputs = 3 motors alone on TIM1 (DShot-capable later) + 6 PWM servos on TIM3 and TIM2. A timer has one period
-for all its channels, so servos never share a timer with the motors.
+Output headers O1-O9 and their use in the SATELLITEBOARD target (`target.c`, 2026-11-14). Names: **O1-O9** = PCB output
+header, **S1-S6** = servo 1-6 and **M1-M3** = motor 1-3 = the index in the ADUM_AUX_CHANNELS frame. Design: 3 motors
+alone on TIM1 (DShot-capable later) + 6 PWM servos on TIM3 and TIM2. A timer has one period for all its channels, so
+servos never share a timer with the motors.
 
-| Output | Type | MCU pin | Timer | DMA1 channel (also requested by) | DMA |
+| Output | Function | MCU pin | Timer | DMA1 channel (also requested by) | DMA |
 |---|---|---|---|---|---|
-| S1 | Servo 1 | PA6 | TIM3_CH1 | Ch6 | NO (servo) |
-| S2 | Servo 2 | PA7 | TIM3_CH2 | none | NO (servo) |
-| S3 | Servo 3 | PB0 | TIM3_CH3 | Ch2 | NO (servo) |
-| S4 | Motor 1 | PA8 | TIM1_CH1 | Ch2 (SPI1_RX, USART3_TX) | YES |
-| S5 | Motor 2 | PA10 | TIM1_CH3 | Ch6 (USART2_RX, I2C1_TX) | YES |
-| S6 | Motor 3 | PA9 | TIM1_CH2 | Ch3 (SPI1_TX, USART3_RX) | YES |
-| S7 | Servo 4 | PA15 | TIM2_CH1 | Ch5 | NO (servo) |
-| S8 | Servo 5 | PB3 | TIM2_CH2 | Ch7 | NO (servo) |
-| S9 | Servo 6 | PB1 | TIM3_CH4 | Ch3 | NO (servo) |
+| O1 | S1 | PA6 | TIM3_CH1 | Ch6 | NO (servo) |
+| O2 | S3 | PA7 | TIM3_CH2 | none | NO (servo) |
+| O3 | S5 | PB0 | TIM3_CH3 | Ch2 | NO (servo) |
+| O4 | M1 | PA8 | TIM1_CH1 | Ch2 (SPI1_RX, USART3_TX) | YES |
+| O5 | M3 | PA10 | TIM1_CH3 | Ch6 (USART2_RX, I2C1_TX) | YES |
+| O6 | M2 | PA9 | TIM1_CH2 | Ch3 (SPI1_TX, USART3_RX) | YES |
+| O7 | S6 | PA15 | TIM2_CH1 | Ch5 | NO (servo) |
+| O8 | S4 | PB3 | TIM2_CH2 | Ch7 | NO (servo) |
+| O9 | S2 | PB1 | TIM3_CH4 | Ch3 | NO (servo) |
 
-- Servo n / Motor n = the index in the AUX frame from the master. Servos are plain PWM and need no DMA.
+- Servos are plain PWM and need no DMA.
 - DMA1 request map of the STM32F103 (RM0008; double-checked 2026-11-14): Ch1 ADC1; Ch2 USART3_TX, SPI1_RX, TIM1_CH1;
   Ch3 USART3_RX, SPI1_TX, TIM1_CH2; Ch4 USART1_TX; Ch5 USART1_RX, TIM1_UP; Ch6 USART2_RX, I2C1_TX, TIM1_CH3;
   Ch7 USART2_TX, I2C1_RX. Requests on one channel are ORed, so a channel is lost only when two of its peripherals

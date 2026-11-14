@@ -9,6 +9,12 @@ sent at 50 Hz, board DISARMED and motors at 1000 us. Press Ctrl-C to stop.
   --arm               send arming_status = ARMED (the motors then follow --motors)
   --motors 1100,1100,1100   motor pulses in us; they only take effect with --arm
   --port /dev/ttyUSB1 --baud 115200 --freq 0.5 --min 1000 --max 2000 --rate 50 --servos 5 --duration 10
+  --pinout            pinout check: move one PCB output header at a time (O1..O9, --step seconds each)
+  --output O5         move only this PCB output header (O1..O9), continuously
+
+Pinout modes: a servo on the moving output follows the sweep, everything else holds (servos 1500 us, motors
+1000 us). Motor outputs (O4 O5 O6 = M1 M3 M2) only move while ARMED, so the script arms during their turn: plug
+only a servo, no ESC, no propellers. Mapping as docs/adum/sat_pinout.png.
 
 The board answers with a HEARTBEAT (arm state) and ADUM_GPS_PVT; both are printed. Standard library only
 (Linux/macOS serial through termios). Without an armed flag the motors never run. Remove propellers and
@@ -30,6 +36,15 @@ BAUDS = {
 }
 MOTOR_COUNT = 3
 SERVO_SLOTS = 8
+SERVO_HOLD_US = 1500
+MOTOR_HOLD_US = 1000
+
+# PCB output header -> (name, kind, index in the frame), SATELLITEBOARD target.c and docs/adum/sat_pinout.png
+PCB_OUTPUTS = {
+    "O1": ("S1", "servo", 0), "O2": ("S3", "servo", 2), "O3": ("S5", "servo", 4),
+    "O4": ("M1", "motor", 0), "O5": ("M3", "motor", 2), "O6": ("M2", "motor", 1),
+    "O7": ("S6", "servo", 5), "O8": ("S4", "servo", 3), "O9": ("S2", "servo", 1),
+}
 
 
 def open_port(path, baud):
@@ -74,6 +89,18 @@ def read_available(fd):
         return b""
 
 
+def pinout_frame(label, sweep_value):
+    """Frame values that move only the output `label`: returns (armed, motors, servos)."""
+    _name, kind, index = PCB_OUTPUTS[label]
+    motors = [MOTOR_HOLD_US] * MOTOR_COUNT
+    servos = [SERVO_HOLD_US] * 6 + [None] * (SERVO_SLOTS - 6)
+    if kind == "servo":
+        servos[index] = sweep_value
+        return False, motors, servos
+    motors[index] = sweep_value
+    return True, motors, servos                  # motor outputs follow the frame only while armed
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port_pos", nargs="?", metavar="PORT", help="serial device, e.g. /dev/ttyUSB0")
@@ -88,6 +115,9 @@ def main():
     ap.add_argument("--arm", action="store_true", help="send ARMED (motors follow --motors)")
     ap.add_argument("--motors", default="1000,1000,1000", help="motor pulses in us, 3 values (default 1000,1000,1000)")
     ap.add_argument("--duration", type=float, default=0, help="stop after this many seconds (default: until Ctrl-C)")
+    ap.add_argument("--pinout", action="store_true", help="move one PCB output header at a time, O1..O9")
+    ap.add_argument("--output", choices=sorted(PCB_OUTPUTS), help="move only this PCB output header")
+    ap.add_argument("--step", type=float, default=5.0, help="seconds per output in --pinout (default 5)")
     args = ap.parse_args()
 
     port = args.port_pos or args.port or "/dev/ttyUSB0"
@@ -104,6 +134,10 @@ def main():
     parser = mav.FrameParser()
     centre, amplitude = (args.lo + args.hi) / 2.0, (args.hi - args.lo) / 2.0
 
+    pinout_order = sorted(PCB_OUTPUTS, key=lambda label: int(label[1:]))
+    if args.pinout or args.output:
+        print("PINOUT mode: only one output moves (%.2f Hz, %d-%d us). Motor outputs arm the board: no ESC, no props."
+              % (args.freq, args.lo, args.hi))
     print("%s @ %d baud, %s, %.2f Hz sweep %d-%d us on servos 1-%d, %d frames/s%s" % (
         port, args.baud, "ARMED" if args.arm else "disarmed", args.freq, args.lo, args.hi, args.servos, args.rate,
         ", motors %s" % motors if args.arm else ""))
@@ -119,6 +153,8 @@ def main():
     heartbeats = 0
     last_gps = None
     servos = [None] * SERVO_SLOTS
+    armed = args.arm
+    moving_label = None
     try:
         while True:
             now = time.monotonic()
@@ -126,10 +162,20 @@ def main():
             if args.duration and t >= args.duration:
                 break
             if now >= next_frame:
-                for i in range(args.servos):
-                    phase = 0.0 if args.same_phase else 2 * math.pi * i / args.servos
-                    servos[i] = round(centre + amplitude * math.sin(2 * math.pi * args.freq * t + phase))
-                write_all(fd, gen.aux_channels(args.arm, motors, servos))
+                sweep_value = round(centre + amplitude * math.sin(2 * math.pi * args.freq * t))
+                if args.pinout or args.output:
+                    label = args.output or pinout_order[int(t // args.step) % len(pinout_order)]
+                    if label != moving_label:
+                        name, kind, _index = PCB_OUTPUTS[label]
+                        print(">>> now moving %s = %s%s" % (label, name, "  [ARMED]" if kind == "motor" else ""),
+                              flush=True)
+                        moving_label = label
+                    armed, motors, servos = pinout_frame(label, sweep_value)
+                else:
+                    for i in range(args.servos):
+                        phase = 0.0 if args.same_phase else 2 * math.pi * i / args.servos
+                        servos[i] = round(centre + amplitude * math.sin(2 * math.pi * args.freq * t + phase))
+                write_all(fd, gen.aux_channels(armed, motors, servos))
                 sent += 1
                 next_frame += 1.0 / args.rate
                 if next_frame < now - 1.0:           # fell far behind (suspended): do not burst
@@ -142,7 +188,8 @@ def main():
                     last_gps = mav.decode_gps_pvt(payload)
             if now >= next_report:
                 next_report += 1.0
-                line = "t=%5.1fs sent=%5d servos=%s" % (t, sent, [s for s in servos[:args.servos]])
+                line = "t=%5.1fs sent=%5d servos=%s motors=%s%s" % (
+                    t, sent, servos[:6], motors, " ARMED" if armed else "")
                 line += " | board: " + ("no reply" if not heartbeats else "heartbeat %s" % ("ARMED" if board_armed else "disarmed"))
                 if last_gps:
                     line += ", GPS fix=%d sats=%d lat=%.6f lon=%.6f" % (

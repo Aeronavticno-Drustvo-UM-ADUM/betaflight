@@ -40,6 +40,7 @@
 
 #include "fc/runtime_config.h"
 
+#include "flight/mixer.h"
 #include "flight/servos.h"
 
 #include "io/adum_mavlink.h"
@@ -309,6 +310,7 @@ static void servoDriverWriteMotors(void)
     float values[SERVO_DRIVER_MOTOR_COUNT];
     for (int i = 0; i < SERVO_DRIVER_MOTOR_COUNT; i++) {
         values[i] = (state == SD_ARMED) ? motorPulse[i] : motorConfig()->mincommand;
+        motor[i] = values[i];                       // reported over MSP_MOTOR (USB monitoring)
     }
     motorWriteAll(values);
 }
@@ -321,6 +323,7 @@ static void servoDriverWriteServo(int index, uint16_t pulseUs)
         clamped++;
     }
     pwmWriteServo(index, limited);
+    servo[index] = limited;                         // reported over MSP_SERVO (USB monitoring)
 }
 
 // Sends a frame if the port has room for all of it (never blocks, never sends half a frame). Returns false if dropped.
@@ -359,6 +362,12 @@ static void servoDriverSetState(servoDriverState_e newState, servoDriverDiagCaus
         ENABLE_ARMING_FLAG(ARMED);
     } else {
         DISABLE_ARMING_FLAG(ARMED);
+    }
+    // FAILSAFE visible over MSP_STATUS (USB monitoring); the upstream failsafe module is not running here
+    if (state == SD_FAILSAFE) {
+        ENABLE_FLIGHT_MODE(FAILSAFE_MODE);
+    } else {
+        DISABLE_FLIGHT_MODE(FAILSAFE_MODE);
     }
 }
 
