@@ -7,20 +7,20 @@ Fork of [Betaflight](https://github.com/betaflight/betaflight) 4.3.x (MSP API 1.
 
 ## System
 
-The master flight controller is INAV on EVIS_FC in the fuselage (sibling repo `../inav`, branch `adum-master10+sat`). The SATELLITEBOARD sits in the wing, so only power and one bus cable run between the fuselage and the wing.
+The master flight controller is INAV on EVIS_FC in the fuselage (sibling repo `../inav`, branch `adum-master10`). The SATELLITEBOARD sits in the wing, so only power and one bus cable run between the fuselage and the wing.
 
 ```
  EVIS_FC, fuselage (INAV, ../inav)          SATELLITEBOARD, wing (this repo)
- master: sensors, navigation, mixer  ---->  5 servos, 3 motors (OneShot125)
-                                    UART1   MAVLink 2, ADUM dialect, 50 Hz ADUM_AUX_CHANNELS
+ master: sensors, navigation, mixer  ---->  6 servos, 3 motors (standard PWM 50 Hz)
+                                    UART1   MAVLink 2, ADUM dialect, 100 Hz ADUM_AUX_CHANNELS
                                     <----   HEARTBEAT (ready to arm), STATUSTEXT, SYS_STATUS, ADUM_GPS_PVT
 ```
 
 The rule (D8, spec [`docs/arming_safety.md`](docs/arming_safety.md)): the master is primary. Master armed = satellite armed; the satellite never refuses an ARMED frame. Only total link loss (no valid frame for 500 ms) stops the motors (FAILSAFE), and the satellite follows the master again as soon as frames return. The satellite reports whether it is ready to arm; INAV blocks its own arming until it is.
 
-Status (2026-11-13): arming, failsafe and safety logic implemented. SITL suite passes (`test/run_tests.py`). On the bench, the standalone suite `test/hw/` (hw_01-04) and the combined suites with EVIS_FC in the INAV repo pass; failsafe delay 499-505 ms. Not yet tested in the aircraft (real ESCs, servos, power). Current state: [`STATUS.md`](STATUS.md); path to the first flight: `../inav/docs/adum/flight_readiness.md`.
+Status (2026-11-20): arming, failsafe, motor test and safety logic implemented; new 9-output pinout. SITL suite passes (`test/run_tests.py`). On the bench, the combined suites with EVIS_FC in the INAV repo pass on the new pinout; the standalone suite `test/hw/` passed on the old pinout and is not yet rerun. Failsafe delay 499-505 ms. Current state: [`STATUS.md`](STATUS.md); path to the first flight: `../inav/docs/adum/flight_readiness.md`.
 
-Branch: `master+adum+sat`. Rules for agents: [`CLAUDE.md`](CLAUDE.md).
+Branch: `adum-master`. Rules for agents: [`CLAUDE.md`](CLAUDE.md).
 
 ## Hardware (`src/main/target/SATELLITEBOARD/`)
 
@@ -62,7 +62,7 @@ servos never share a timer with the motors.
   without DMA. So the motor channels Ch2, Ch3, Ch6 are free: keep SPI1, UART2, UART3 and I2C1 without DMA.
 - DShot: per channel (Ch2, Ch6, Ch3). Burst mode would need TIM1_UP = Ch5, taken by UART1 RX.
   Betaflight's F1 table had TIM1_CH2 as NONE; corrected to Ch3 (`drivers/timer_def.h`).
-- Today nothing on the outputs uses DMA (servos PWM, motors OneShot125). Betaflight has no DShot for F1
+- Today nothing on the outputs uses DMA (servos and motors standard PWM). Betaflight has no DShot for F1
   (`USE_DSHOT` is set from F3 up in `common_pre.h`): DShot here would be a port.
 - TIM1 is an advanced timer: outputs need MOE (main output enable), checked by the bench pin test.
 
@@ -84,7 +84,7 @@ UART2, motors standard PWM 400 Hz 1000-2000 us). A saved config is never loaded 
 - **CLI settings** (`servoDriverConfig`, `PG_SERVO_DRIVER_CONFIG` 557): `sd_link_timeout_ms` (500, 100-5000), `sd_boot_grace_ms` (2000, 0-10000).
 - **Board to master:** a 1 Hz `HEARTBEAT` (DISARMED: base_mode 0 / STANDBY; ARMED: `SAFETY_ARMED` / ACTIVE; FAILSAFE: 0 / CRITICAL), a 1 Hz `SYS_STATUS` (`errors_comm`, `drop_rate_comm` from sequence gaps, `errors_count1` TX drops, `errors_count2` clamps and no-value values; uint16 wrap), `STATUSTEXT` (`NOT READY: <reason>` WARNING, 1 Hz while not ready; `FAILSAFE: link lost` / `link restored` CRITICAL; `LINK: low frame rate` WARNING when < 20 AUX frames in 1 s, max every 10 s), and an **`ADUM_GPS_PVT`** (id 13000) for every UBX NAV-PVT solution (fix type incl. DGPS/RTK float/RTK fixed, time, position, velocity, accuracies). Heading is flagged valid with a 3D fix above 0.3 m/s. `ADUM_MAGNETOMETER` (13001) is not implemented yet (needs a magnetometer driver; I2C1 on the free pins PB8/PB9 needs the AFIO remap that the F1 I2C driver does not set yet).
 - GPS (UBlox, set the UART in Ports): the driver configures M9/M10 modules with `UBX-CFG-VALSET` (module detected through `UBX-MON-VER`; SBAS and constellation settings stay at the module defaults on those). Older modules use the original commands.
-- Motors are PWM, OneShot or Multishot. **DShot is not available** on this F1 target. The motor protocol defaults to `DISABLED`: set `motor_pwm_protocol` (e.g. `ONESHOT125`) in the CLI.
+- Motors are PWM, OneShot or Multishot. **DShot is not available** on this F1 target. The protocol is compiled in (standard PWM 50 Hz, `PWM_TYPE_STANDARD` in `target/SATELLITEBOARD/config.c`): the board always boots on these defaults and never loads a saved config, so a CLI change lasts until reboot only.
 - Everything else is removed to fit: OSD, blackbox, LED strip, VTX, SPI, beeper, most serial RX protocols and telemetry, resource remapping, plus the unused Open Location Code library (`make/source.mk`). Flash use is 87344 B (text+data) of 126 KB, static RAM 15460 B of 20 KB (2 KB of it is the reserved stack).
 - The CLI and MSP over USB/UART still work. The gyro, attitude and PID tabs of the configurator show nothing useful.
 

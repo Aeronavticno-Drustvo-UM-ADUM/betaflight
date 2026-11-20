@@ -5,7 +5,7 @@ ADUM fork of Betaflight 4.3: SATELLITEBOARD (STM32F103) MAVLink servo/motor driv
 - **Open design decisions and risks: `TODO.md`.** Before changing firmware behaviour in those areas (motor pulse generation, re-arm after failsafe, watchdog, reset behaviour, default config, arming flags, TX drops), ask the owner for the decision. Do not decide yourself.
 - Do not modify upstream Betaflight code beyond the `USE_SERVO_DRIVER` paths without asking.
 - SITL builds on the host (`GCC_VERSION=none GCC_REQUIRED_VERSION=none`), firmware in the `inav-build` Docker image (see `README.md`).
-- Run tests: `python3 test/run_tests.py [--build]` (~5 min, 286 checks as of 2026-11-11).
+- Run tests: `python3 test/run_tests.py [--build]` (~5 min, 7 tests as of 2026-11-14).
 - Never run two SITL test runs at once: shared tcp ports 5761-5763.
 - Flashing: `tools/stlink-flash/README.md`, read its Troubleshooting section first (macOS: ST-Link over the USB-A dock, not the MacBook USB-C port; reset after STM32CubeProgrammer).
 - Firmware build: `docker run --rm --entrypoint make -v "$PWD":/src -w /src inav-build TARGET=SATELLITEBOARD GCC_REQUIRED_VERSION=10.3.1 -j"$(nproc)"`.
