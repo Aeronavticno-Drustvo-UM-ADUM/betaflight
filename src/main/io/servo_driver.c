@@ -314,6 +314,7 @@ static bool pulseValid(uint16_t pulseUs)
 }
 
 // Motors are held at the minimum command (zero throttle) unless armed or in a fresh motor test. Called every task cycle.
+// Values are written in the active motor protocol range, converted from microseconds.
 static void servoDriverWriteMotors(timeUs_t currentTimeUs)
 {
     // Expire the motor test, so a stale flag can never come back
@@ -332,9 +333,16 @@ static void servoDriverWriteMotors(timeUs_t currentTimeUs)
         } else {
             values[i] = motorConfig()->mincommand;
         }
-        motor[i] = values[i];                       // reported over MSP_MOTOR (USB monitoring)
+        motor[i] = values[i];                       // reported over MSP_MOTOR (USB monitoring), stays in microseconds
     }
-    motorWriteAll(values);
+
+    // Convert microseconds to the active protocol's range (identity for PWM and SITL)
+    float protocolValues[SERVO_DRIVER_MOTOR_COUNT];
+    for (int i = 0; i < SERVO_DRIVER_MOTOR_COUNT; i++) {
+        const uint16_t pulseUs = (uint16_t)values[i];
+        protocolValues[i] = motorConvertFromExternal(pulseUs);
+    }
+    motorWriteAll(protocolValues);
 }
 
 // Servos always follow the pulse that arrived, whatever the state. No limits apart from the clamp.
