@@ -251,7 +251,7 @@ def phase_crc_error(report, streamer):
 
 
 def check_motors_follow(report, label):
-    """Motor pulses match the commanded value (standard PWM, us = command)."""
+    """Commanded motor values (motor[] us over SWD) match the commanded value."""
     pulses = bench.motor_pulses_us()
     wanted_us = ARMED_MOTOR_US
     worst = max(abs(pulse - wanted_us) for pulse in pulses.values())

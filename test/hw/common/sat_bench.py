@@ -75,10 +75,26 @@ def failsafe_delay_ms():
     return delay_ms
 
 
+def motor_commands():
+    """Commanded motor values over SWD (no halt): [{'motor_us': float, 'dshot': int}, ...] for M1-M3."""
+    return hw.read_motor_commands(OPENOCD_ARGS, "nm", ELF_PATH)
+
+
 def motor_pulses_us():
-    """Motor pin pulse widths in us {pin: us} (from the timer CCR registers over SWD)."""
-    pulses, _moe = hw.read_pulses_us(OPENOCD_ARGS)
-    return {pin: pulses[pin] for pin in hw.MOTOR_PINS}
+    """Commanded motor values in us {"M1": us, ...} from motor[] (DShot: the timer CCR is not a pulse width)."""
+    commands = motor_commands()
+    return {"M%d" % (index + 1): command["motor_us"] for index, command in enumerate(commands)}
+
+
+def motor_dshot_errors():
+    """DShot value minus expected value (from motor[]) per motor, {"M1": error, ...}."""
+    commands = motor_commands()
+    return {"M%d" % (index + 1): hw.dshot_value_error(command) for index, command in enumerate(commands)}
+
+
+def dshot_static_config():
+    """B2 static checks over SWD: [(name, ok, detail)] for TIM1 and DMA1 Ch2/Ch3/Ch6."""
+    return hw.read_dshot_static_config(OPENOCD_ARGS)
 
 
 def servo_pulses_us():
