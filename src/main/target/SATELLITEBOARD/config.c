@@ -58,7 +58,7 @@ void targetConfiguration(void)
 
     // Standard PWM for now (OneShot125 / DShot later); Betaflight's default is "disabled"
     motorConfigMutable()->dev.motorPwmProtocol = PWM_TYPE_STANDARD;
-    motorConfigMutable()->dev.motorPwmRate = 50;                                    // standard PWM, 20 ms period
+    motorConfigMutable()->dev.motorPwmRate = 400;                                   // standard PWM, 2.5 ms period (fits the 2000 us max pulse)
     motorConfigMutable()->mincommand = 1000;
     motorConfigMutable()->maxthrottle = 2000;
 }

@@ -67,7 +67,7 @@ servos never share a timer with the motors.
 - TIM1 is an advanced timer: outputs need MOE (main output enable), checked by the bench pin test.
 
 **Config:** the board always boots on compiled defaults (`target/SATELLITEBOARD/config.c`: MAVLink on UART1 115200, GPS on
-UART2, motors standard PWM 50 Hz 1000-2000 us). A saved config is never loaded (`USE_CONFIG_DEFAULTS_ONLY`, `config/config.c`
+UART2, motors standard PWM 400 Hz 1000-2000 us). A saved config is never loaded (`USE_CONFIG_DEFAULTS_ONLY`, `config/config.c`
 `readEEPROM()`): CLI `set`/`save` changes last only until the next reboot. To change the config, edit `config.c` and flash.
 
 ## How it works
@@ -107,6 +107,15 @@ docker run --rm --entrypoint make -v "$PWD":/src -w /src inav-build \
     TARGET=SATELLITEBOARD GCC_REQUIRED_VERSION=10.3.1 -j"$(nproc)"
 # -> obj/betaflight_4.3.2_SATELLITEBOARD_<commit>.hex
 ```
+
+Flash the built hex with OpenOCD and an ST-Link (macOS: `brew install openocd`), run in this directory:
+
+```bash
+openocd -f interface/stlink.cfg -f target/stm32f1x.cfg \
+    -c "program obj/betaflight_4.3.2_SATELLITEBOARD_<commit>.hex verify reset exit"
+```
+
+Alternative with pyocd: see "Flash" below.
 
 Clean: same command with `clean` added (or `rm -rf obj/main/SATELLITEBOARD`).
 

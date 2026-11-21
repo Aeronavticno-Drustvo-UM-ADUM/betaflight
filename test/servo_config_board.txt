@@ -1,7 +1,7 @@
 # Betaflight CLI configuration for the real SATELLITEBOARD PCB (servo_config.txt is the SITL variant).
 # Differences: MAVLink on UART1 (PB6/PB7, link to the master FC), GPS on UART2 (PA2/PA3, GPS connector).
 # OBSOLETE since 2026-11-14: the board ignores any saved config and always boots on the defaults in
-# src/main/target/SATELLITEBOARD/config.c (same values, motors standard PWM 50 Hz). Kept as reference only.
+# src/main/target/SATELLITEBOARD/config.c (same values, motors standard PWM 400 Hz since 2026-11-21). Kept as reference only.
 # Betaflight CLI configuration for the SATELLITEBOARD servo driver.
 #
 # Paste it into the configurator CLI tab (it ends with "save"), or let
