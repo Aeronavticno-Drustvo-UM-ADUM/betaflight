@@ -72,6 +72,13 @@
 #undef USE_TELEMETRY_SMARTPORT
 #undef USE_RESOURCE_MGMT
 
+// DShot output only (timer-DMA driver); no burst, telemetry, bit-bang or ESC sensor
+#define USE_DSHOT
+#undef USE_DSHOT_DMAR
+#undef USE_DSHOT_TELEMETRY
+#undef USE_DSHOT_BITBANG
+#undef USE_ESC_SENSOR
+
 // GPS: only enabled by common_pre.h for >256 KB parts
 #define USE_GPS
 #define USE_GPS_UBLOX
