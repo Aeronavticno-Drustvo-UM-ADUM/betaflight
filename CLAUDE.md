@@ -7,6 +7,7 @@ ADUM fork of Betaflight 4.3: SATELLITEBOARD (STM32F103) MAVLink servo/motor driv
 - SITL builds on the host (`GCC_VERSION=none GCC_REQUIRED_VERSION=none`), firmware in the `inav-build` Docker image (see `README.md`).
 - Run tests: `python3 test/run_tests.py [--build]` (~5 min, 286 checks as of 2026-11-11).
 - Never run two SITL test runs at once: shared tcp ports 5761-5763.
+- Flashing: `tools/stlink-flash/README.md`, read its Troubleshooting section first (macOS: ST-Link over the USB-A dock, not the MacBook USB-C port; reset after STM32CubeProgrammer).
 - Firmware build: `docker run --rm --entrypoint make -v "$PWD":/src -w /src inav-build TARGET=SATELLITEBOARD GCC_REQUIRED_VERSION=10.3.1 -j"$(nproc)"`.
 - Known SITL startup race (TODO K): ~1 in 3-4 starts crash or lose a listener; the harness restarts. Do not patch `serial_tcp.c` without owner approval.
 - Subagent split that worked: firmware agent owns `src/main` except `target/SITL`; test agent owns `test/` and `src/main/target/SITL/target.c`.
