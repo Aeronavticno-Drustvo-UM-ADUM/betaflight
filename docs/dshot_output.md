@@ -139,6 +139,6 @@ other MCUs), the agent stops and reports instead of writing it.
 
 ## 9. Open questions for the owner
 
-1. DS4: after the B7 measurement, should the board hold `MOTOR_STOP` for a fixed time after a reset before passing armed throttle?
-2. Is a logic analyser available for B3 (see INAV `docs/adum/oneshot_bench.md`)? Without it, B3 is skipped and B4-B6 (the ESC itself) are the proof.
+1. DS4: after the B7 measurement, should the board hold `MOTOR_STOP` for a fixed time after a reset before passing armed throttle? (Owner 2026-11-21: decide after B7.)
+2. Logic analyser for B3: not now, it follows later in the design (owner 2026-11-21). Until then B3 is skipped and B4-B6 (the ESC itself) are the proof.
 3. ESC firmware version: assumed fine for plain DShot (all BLHeli_32 versions support it). Only bidirectional DShot would need >= 32.7.
