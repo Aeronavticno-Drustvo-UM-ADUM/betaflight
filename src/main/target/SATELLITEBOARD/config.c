@@ -56,9 +56,10 @@ void targetConfiguration(void)
     gpsConfigMutable()->provider = GPS_UBLOX;
     gpsConfigMutable()->autoConfig = GPS_AUTOCONFIG_ON;
 
-    // Standard PWM for now (OneShot125 / DShot later); Betaflight's default is "disabled"
-    motorConfigMutable()->dev.motorPwmProtocol = PWM_TYPE_STANDARD;
-    motorConfigMutable()->dev.motorPwmRate = 400;                                   // standard PWM, 2.5 ms period (fits the 2000 us max pulse)
+    // DShot300, output only (no telemetry, no bidirectional); motorPwmRate does not apply (one frame per update)
+    // Fallback to standard PWM: PWM_TYPE_STANDARD and motorPwmRate = 400 (2.5 ms period, fits the 2000 us max pulse)
+    // Fallback if long wires cause trouble: PWM_TYPE_DSHOT150
+    motorConfigMutable()->dev.motorPwmProtocol = PWM_TYPE_DSHOT300;
     motorConfigMutable()->mincommand = 1000;
     motorConfigMutable()->maxthrottle = 2000;
 }

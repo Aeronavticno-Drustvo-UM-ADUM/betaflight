@@ -1,6 +1,6 @@
 # Status
 
-**Next (2026-11-21): DShot300 motor output, output only (owner decision).** Planned, not implemented: `docs/dshot_output.md` (design, spec DS1-DS4, bench B1-B9, agent plan in section 8). Motors run standard PWM 400 Hz until then (`501d47ddb`).
+**Next (2026-11-21): DShot300 motor output, output only (owner decision).** `docs/dshot_output.md` steps 1-4 done (`29b7036de` driver, `60bf0d976` servo driver conversion, step 4 = DShot300 selected in `config.c`, PWM 400 Hz fallback in comment). Not flashed or bench-tested yet. Next: step 5 bench tools, step 6 flash + B2-B7 with the owner.
 
 Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-11-13); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench (L3): rerunnable standalone suite `test/hw/` hw_01-04 **PASS** (2026-11-13), combined suites with INAV EVIS_FC pass (INAV repo). Report: `docs/hw_bench_report.md`. Flight readiness plan: INAV `docs/adum/flight_readiness.md` (A1-A4 done; next: OneShot bench research, INAV TODO ONESHOT-BENCH). Not yet tested in the aircraft.
 

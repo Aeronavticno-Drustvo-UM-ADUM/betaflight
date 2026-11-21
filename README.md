@@ -39,7 +39,7 @@ connector (GPS), UART3 header (G 5V T3 R3), SWD header (G C D 3V), ESC and batte
 
 Output headers O1-O9 and their use in the SATELLITEBOARD target (`target.c`, 2026-11-14). Names: **O1-O9** = PCB output
 header, **S1-S6** = servo 1-6 and **M1-M3** = motor 1-3 = the index in the ADUM_AUX_CHANNELS frame. Design: 3 motors
-alone on TIM1 (DShot-capable later) + 6 PWM servos on TIM3 and TIM2. A timer has one period for all its channels, so
+alone on TIM1 (DShot300) + 6 PWM servos on TIM3 and TIM2. A timer has one period for all its channels, so
 servos never share a timer with the motors.
 
 | Output | Function | MCU pin | Timer | DMA1 channel (also requested by) | DMA |
@@ -62,12 +62,11 @@ servos never share a timer with the motors.
   without DMA. So the motor channels Ch2, Ch3, Ch6 are free: keep SPI1, UART2, UART3 and I2C1 without DMA.
 - DShot: per channel (Ch2, Ch6, Ch3). Burst mode would need TIM1_UP = Ch5, taken by UART1 RX.
   Betaflight's F1 table had TIM1_CH2 as NONE; corrected to Ch3 (`drivers/timer_def.h`).
-- Today nothing on the outputs uses DMA (servos PWM, motors OneShot125). Betaflight has no DShot for F1
-  (`USE_DSHOT` is set from F3 up in `common_pre.h`): DShot here would be a port.
+- Motors use DMA for DShot300 (F3 DShot driver built for F1, `29b7036de`); servos are plain PWM.
 - TIM1 is an advanced timer: outputs need MOE (main output enable), checked by the bench pin test.
 
 **Config:** the board always boots on compiled defaults (`target/SATELLITEBOARD/config.c`: MAVLink on UART1 115200, GPS on
-UART2, motors standard PWM 400 Hz 1000-2000 us). A saved config is never loaded (`USE_CONFIG_DEFAULTS_ONLY`, `config/config.c`
+UART2, motors DShot300 output only, 1000-2000 us external range; PWM 400 Hz fallback in config.c). A saved config is never loaded (`USE_CONFIG_DEFAULTS_ONLY`, `config/config.c`
 `readEEPROM()`): CLI `set`/`save` changes last only until the next reboot. To change the config, edit `config.c` and flash.
 
 ## How it works
@@ -84,7 +83,7 @@ UART2, motors standard PWM 400 Hz 1000-2000 us). A saved config is never loaded 
 - **CLI settings** (`servoDriverConfig`, `PG_SERVO_DRIVER_CONFIG` 557): `sd_link_timeout_ms` (500, 100-5000), `sd_boot_grace_ms` (2000, 0-10000).
 - **Board to master:** a 1 Hz `HEARTBEAT` (DISARMED: base_mode 0 / STANDBY; ARMED: `SAFETY_ARMED` / ACTIVE; FAILSAFE: 0 / CRITICAL), a 1 Hz `SYS_STATUS` (`errors_comm`, `drop_rate_comm` from sequence gaps, `errors_count1` TX drops, `errors_count2` clamps and no-value values; uint16 wrap), `STATUSTEXT` (`NOT READY: <reason>` WARNING, 1 Hz while not ready; `FAILSAFE: link lost` / `link restored` CRITICAL; `LINK: low frame rate` WARNING when < 20 AUX frames in 1 s, max every 10 s), and an **`ADUM_GPS_PVT`** (id 13000) for every UBX NAV-PVT solution (fix type incl. DGPS/RTK float/RTK fixed, time, position, velocity, accuracies). Heading is flagged valid with a 3D fix above 0.3 m/s. `ADUM_MAGNETOMETER` (13001) is not implemented yet (needs a magnetometer driver; I2C1 on the free pins PB8/PB9 needs the AFIO remap that the F1 I2C driver does not set yet).
 - GPS (UBlox, set the UART in Ports): the driver configures M9/M10 modules with `UBX-CFG-VALSET` (module detected through `UBX-MON-VER`; SBAS and constellation settings stay at the module defaults on those). Older modules use the original commands.
-- Motors are PWM, OneShot or Multishot. **DShot is not available** on this F1 target. The motor protocol defaults to `DISABLED`: set `motor_pwm_protocol` (e.g. `ONESHOT125`) in the CLI.
+- Motors use **DShot300** (output only, no telemetry, no bidirectional), set in `config.c`. Fallback: standard PWM 400 Hz (`PWM_TYPE_STANDARD`, see the comment in `config.c`). SITL uses the PWM/identity path.
 - Everything else is removed to fit: OSD, blackbox, LED strip, VTX, SPI, beeper, most serial RX protocols and telemetry, resource remapping, plus the unused Open Location Code library (`make/source.mk`). Flash use is 87344 B (text+data) of 126 KB, static RAM 15460 B of 20 KB (2 KB of it is the reserved stack).
 - The CLI and MSP over USB/UART still work. The gyro, attitude and PID tabs of the configurator show nothing useful.
 
@@ -216,7 +215,7 @@ Every run writes `runs/<time>_<test>/summary.json`. Details: [`test/README.md`](
 
 Open design decisions and safety risks are listed in [`TODO.md`](TODO.md) and, across both repos, in `../inav/docs/adum/TODO.md`. They need an owner decision before anyone changes that behaviour.
 
-- DShot, servo/motor output feedback, the magnetometer (`ADUM_MAGNETOMETER`), sysid/compid.
+- Servo/motor output feedback, the magnetometer (`ADUM_MAGNETOMETER`), sysid/compid.
 - Aircraft tests: real ESCs and servos, power and noise, endurance (`../inav/docs/adum/flight_readiness.md`, parts A and B).
 - Bench items still open: watchdog (IWDG) under a firmware hang, reset while armed, pin-level output checks.
 

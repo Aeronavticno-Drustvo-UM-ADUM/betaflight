@@ -30,7 +30,7 @@ servo 2 1000 2000 1500 100 -1
 servo 3 1000 2000 1500 100 -1
 servo 4 1000 2000 1500 100 -1
 
-# Motors: PWM family protocol (DShot is not available on the F103)
+# Motors: SITL uses the PWM/identity path (set below); the board uses DShot300 from its compiled defaults
 set motor_pwm_protocol = ONESHOT125
 set min_command = 1000
 set max_throttle = 2000

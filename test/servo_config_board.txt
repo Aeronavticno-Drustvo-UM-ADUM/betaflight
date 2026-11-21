@@ -1,7 +1,7 @@
 # Betaflight CLI configuration for the real SATELLITEBOARD PCB (servo_config.txt is the SITL variant).
 # Differences: MAVLink on UART1 (PB6/PB7, link to the master FC), GPS on UART2 (PA2/PA3, GPS connector).
 # OBSOLETE since 2026-11-14: the board ignores any saved config and always boots on the defaults in
-# src/main/target/SATELLITEBOARD/config.c (same values, motors standard PWM 400 Hz since 2026-11-21). Kept as reference only.
+# src/main/target/SATELLITEBOARD/config.c (same values, motors DShot300). Kept as reference only.
 # Betaflight CLI configuration for the SATELLITEBOARD servo driver.
 #
 # Paste it into the configurator CLI tab (it ends with "save"), or let
@@ -35,8 +35,8 @@ servo 3 1000 2000 1500 100 -1
 servo 4 1000 2000 1500 100 -1
 servo 5 1000 2000 1500 100 -1
 
-# Motors: PWM family protocol (DShot is not available on the F103)
-set motor_pwm_protocol = PWM
+# Motors: board runs DShot300 from compiled defaults; this file is reference only
+set motor_pwm_protocol = DSHOT300
 set min_command = 1000
 set max_throttle = 2000
 
