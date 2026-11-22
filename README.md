@@ -65,14 +65,14 @@ servos never share a timer with the motors.
 - Motors use DMA for DShot300 (F3 DShot driver built for F1, `29b7036de`); servos are plain PWM.
 - TIM1 is an advanced timer: outputs need MOE (main output enable), checked by the bench pin test.
 
-**Config:** the board always boots on compiled defaults (`target/SATELLITEBOARD/config.c`: MAVLink on UART1 115200, GPS on
+**Config:** the board always boots on compiled defaults (`target/SATELLITEBOARD/config.c`: MAVLink on UART1 460800 with a 512 B RX buffer, GPS on
 UART2, motors DShot300 output only, 1000-2000 us external range; PWM 400 Hz fallback in config.c). A saved config is never loaded (`USE_CONFIG_DEFAULTS_ONLY`, `config/config.c`
 `readEEPROM()`): CLI `set`/`save` changes last only until the next reboot. To change the config, edit `config.c` and flash.
 
 ## How it works
 
 - `USE_SERVO_DRIVER` (set in `target.h`) removes the gyro, filter, PID, accelerometer, attitude and RX tasks and the matching init in `main()`. They are replaced by one task (1 kHz target rate; lower on SITL), `src/main/io/servo_driver.c`.
-- The master flight controller talks MAVLink 2.0 with the ADUM dialect (`lib/main/MAVLink_adum`, generated from `adum.xml` in the INAV fork; MAVLink 1.0 headers stay for the other targets). Put the **MAVLink** telemetry function on a UART (Ports tab or CLI `serial`, 115200 baud). `test/servo_config.txt` is a ready CLI configuration, GPS included.
+- The master flight controller talks MAVLink 2.0 with the ADUM dialect (`lib/main/MAVLink_adum`, generated from `adum.xml` in the INAV fork; MAVLink 1.0 headers stay for the other targets). Put the **MAVLink** telemetry function on a UART (Ports tab or CLI `serial`; the CLI accepts at most 115200 for telemetry, the SATELLITEBOARD sets 460800 in `config.c`). `test/servo_config.txt` is a ready CLI configuration, GPS included.
 - **`ADUM_AUX_CHANNELS`** (id 13002) from the master: `arming_status`, `servo[8]`, `motor[3]` in us. The board outputs servos 1-6 and motors 1-3; servos 7-8 are ignored. 0 and 65535 mean "no value". sysid/compid are not checked yet.
 - **Servos** always move to the pulse that arrives, armed or not. The configurator servo limits are ignored; only a 500-2500 us clamp applies. Before the first frame they sit at `servo_center_pulse`.
 - **Motors** stay at zero throttle (`min_command` pulse) unless the board is ARMED. The motor values of an armed frame are applied at once; a disarmed frame sets the motors to zero. Values are clamped to `min_command`..`max_throttle`. The motor output is written on every task cycle (1 kHz target; BLHeli_32 needs > 200 DShot frames/s, bench 2026-11-22) in every state, so the ESCs always see a continuous pulse train.

@@ -62,7 +62,7 @@
 #define SERVO_DRIVER_PULSE_MAX          2500
 #define SERVO_DRIVER_PULSE_INVALID      0       // 0 and UINT16_MAX in ADUM_AUX_CHANNELS mean "no value"
 #define SERVO_DRIVER_HEADING_MIN_SPEED  300     // mm/s, below this heading_motion is not flagged valid
-#define SERVO_DRIVER_DEFAULT_BAUD       BAUD_115200
+#define SERVO_DRIVER_DEFAULT_BAUD       BAUD_460800
 #define SERVO_DRIVER_MOTOR_TEST_TIMEOUT_MS 200 // MT4: motor test values are held at most this long without a fresh MOTOR_TEST frame
 
 #define SERVO_DRIVER_MOTOR_TEST_LOCKOUT_MS 5000 // MT8: MOTOR_TEST is ignored this long after leaving ARMED/FAILSAFE

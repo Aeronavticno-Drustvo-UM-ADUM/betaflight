@@ -46,8 +46,8 @@ Rerunnable satellite standalone suite (FTDI fake master + SWD): `python3 test/hw
 ## Bench (2026-11-12)
 Setup, details also in the INAV repo memory/STATUS:
 - Board: SATELLITEBOARD PCB, flashed by ST-Link (STM32CubeProgrammer). VCP (CLI/MSP): `/dev/serial/by-id/usb-STMicroelectronics_STM32_Virtual_COM_Port_6D8E568C5670-if00`.
-- MAVLink: UART1 (PB6/PB7, 115200) via FTDI FT2232H channel B: `/dev/serial/by-id/usb-FTDI_Dual_RS232-HS-if01-port0`. Do not use the WCH USB quad serial: it delayed board->host data by 4-15 s (false H1). Use by-id paths.
-- Config for the PCB: `test/servo_config_board.txt` (MAVLink UART1, GPS UART2, UART3 off); `test/servo_config.txt` stays the SITL variant.
+- MAVLink: UART1 (PB6/PB7, 460800 since 2026-11-22; 115200 before) via FTDI FT2232H channel B: `/dev/serial/by-id/usb-FTDI_Dual_RS232-HS-if01-port0`. Do not use the WCH USB quad serial: it delayed board->host data by 4-15 s (false H1). Use by-id paths.
+- Config for the PCB: compiled defaults only, `src/main/target/SATELLITEBOARD/config.c` (MAVLink UART1, GPS UART2, UART3 off); `test/servo_config.txt` stays the SITL variant.
 - Firmware fixes found on the bench (TODO S): USART1 remap (UART1 on PB6/PB7), TIM2 partial remap 1 (PA15/PB3), SWD re-enabled after the remaps. All in `targetPreInit()` (`target.c`), no upstream driver change.
 - Verified: HEARTBEAT/SYS_STATUS received, servo outputs S4-S8 (PA8, PA9, PA10, PA15, PB3) 50 Hz on the scope. Clock 72 MHz (8 MHz crystal). The first "no pulses" was a PCB power problem.
 - Not verified yet: motor timing on the scope, GPS on UART2, IWDG, `save` vs IWDG, UART re-init.

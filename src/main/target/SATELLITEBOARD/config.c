@@ -46,10 +46,10 @@ static void setPortDefaults(serialPortIdentifier_e identifier, serialPortFunctio
 }
 
 // Board defaults (owner, 2026-11-14): the satellite works without any saved config, so a missing or broken
-// config still gives the MAVLink link to the master. Same content as test/servo_config_board.txt, motors on PWM.
+// config still gives the MAVLink link to the master.
 void targetConfiguration(void)
 {
-    setPortDefaults(SERIAL_PORT_USART1, FUNCTION_TELEMETRY_MAVLINK, BAUD_115200);   // link to the master
+    setPortDefaults(SERIAL_PORT_USART1, FUNCTION_TELEMETRY_MAVLINK, BAUD_460800);   // link to the master (the CLI cannot set > 115200 here)
     setPortDefaults(SERIAL_PORT_USART2, FUNCTION_GPS, BAUD_115200);                 // GPS connector
 
     featureConfigSet(FEATURE_GPS);

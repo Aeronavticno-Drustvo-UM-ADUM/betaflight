@@ -41,6 +41,8 @@
 #define USE_UART1
 #define USE_UART2
 #define USE_UART3
+// RX DMA ring per UART (default 128 B): 512 B holds 11 ms of the master link at 460800 baud
+#define UART_RX_BUFFER_SIZE     512
 
 #define SERIAL_PORT_COUNT       4
 
