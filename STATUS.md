@@ -1,6 +1,6 @@
 # Status
 
-**Next (2026-11-21): DShot300 motor output, output only (owner decision).** `docs/dshot_output.md` steps 1-4 done (`29b7036de` driver, `60bf0d976` servo driver conversion, step 4 = DShot300 selected in `config.c`, PWM 400 Hz fallback in comment). Not flashed or bench-tested yet. Next: step 5 bench tools, step 6 flash + B2-B7 with the owner.
+**Next (2026-11-21): DShot300 motor output, output only (owner decision).** `docs/dshot_output.md` steps 1-4 done (`29b7036de` driver, `60bf0d976` servo driver conversion, step 4 = DShot300 selected in `config.c`, PWM 400 Hz fallback in comment). Not flashed or bench-tested yet. Bench 2026-11-22: (a) DShot timer ARR bug fixed `34ebf7601`; (b) 200 Hz too slow for the BLHeli_32 ESC -> servo task 1 kHz `ffebdfb08` (CPU 5.2 % at 1 kHz, link 100 frames/s); DShot300 spins M1. Next: B2-B7 with the owner.
 
 Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-11-13); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench (L3): rerunnable standalone suite `test/hw/` hw_01-04 **PASS** (2026-11-13), combined suites with INAV EVIS_FC pass (INAV repo). Report: `docs/hw_bench_report.md`. Flight readiness plan: INAV `docs/adum/flight_readiness.md` (A1-A4 done; next: OneShot bench research, INAV TODO ONESHOT-BENCH). Not yet tested in the aircraft.
 
@@ -61,8 +61,8 @@ Setup, details also in the INAV repo memory/STATUS:
 - **Done 2026-11-13:** D8 (master is primary, `docs/arming_safety.md`); fix W (int32 timestamp windows, `docs/fix_W_timestamps.md`, SITL `test_06_time_wrap.py`, verified on the board); diagnostic counters `USE_SERVO_DRIVER_DIAG` (on for SATELLITEBOARD); K (SITL startup race) fixed with a mutex in `serial_tcp.c` (SITL only). Next: CCER/GPIO reads (TODO U), remaining bench plan (V), owner decisions (TODO.md, X).
 - A2 done 2026-11-13: `hw_output_check.read_pin_config()` / `sat_bench.pin_config()` (CCER, TIM1 MOE, GPIO AF push-pull, AFIO_MAPR info), hw_01 phase 3, 18/18 `--repeat 2`.
 - Next (board): A3 watchdog (IWDG under a halt), A4 reset while armed (INAV `docs/adum/flight_readiness.md`).
-- Hardware tests: `test/hw/` (FTDI fake master + SWD) replaces the planned `harness.py --hw` backend. Scope only for timing (50 Hz, 200 Hz motor, failsafe edges). Motors armed only with props off.
-- Bench test plan: IWDG reset/brownout while armed, `save` vs IWDG, 200 Hz motor pulse on scope, ESC on failsafe/recovery, UART noise/cable pull/re-init, P5, GPS M10.
+- Hardware tests: `test/hw/` (FTDI fake master + SWD) replaces the planned `harness.py --hw` backend. Scope only for timing (50 Hz, 1 kHz motor, failsafe edges). Motors armed only with props off.
+- Bench test plan: IWDG reset/brownout while armed, `save` vs IWDG, 1 kHz motor pulse on scope, ESC on failsafe/recovery, UART noise/cable pull/re-init, P5, GPS M10.
 - SITL phase 2: GPS faults, TX buffer saturation, configurator access while armed.
 - SITL phase 3: soak, timer wrap, reboot, EEPROM.
 - Open owner decisions (`TODO.md`): G TX drop counter, J IWDG vs `bl`; E done 2026-11-14 (compiled defaults, saved config never loaded). M, N, O, P, X closed by D8 (2026-11-13); EC fixed (2026-11-13).

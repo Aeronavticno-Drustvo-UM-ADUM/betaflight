@@ -61,7 +61,8 @@ correct only for PWM. Change: convert each value with Betaflight's `motorConvert
 | DShot (`dshot.c:81`) | 1000 -> `DSHOT_CMD_MOTOR_STOP` (0); 1001-2000 -> 48-2047 linear | Disarmed, failsafe, boot grace (`mincommand` 1000) send stop frames. Armed 1000 (rear motor off in FW) = stop. INAV owns idle (`throttle_idle`); `digitalIdleOffsetValue` is not used on this path |
 
 - `motor[i]` (MSP monitoring, `servo_driver.c:335`) keeps the **microsecond** value, so `sat_usb_monitor.py` stays valid.
-- Frames go out on every 200 Hz cycle in every state (TODO A). The ESC needs this continuous stream.
+- Frames go out on every 1 kHz cycle in every state (TODO A). The ESC needs this continuous stream.
+- BLHeli_32 (Raptor5) does not detect DShot at 200 frames/s: it needs > 200 frames/s (bench 2026-11-22), hence the servo task runs at 1 kHz (`ffebdfb08`).
 
 ### 3.3 Switch the protocol (`target/SATELLITEBOARD/config.c:59-63`)
 
@@ -84,7 +85,7 @@ external range).
 |---|---|---|
 | B1 | Build | Flash and RAM within budget; report the numbers |
 | B2 | SWD static, no ESC | TIM1 PSC = 11, ARR = 19, CC1-CC3 enabled, MOE = 1; DMA1 Ch2/Ch3/Ch6 configured; UART1 frames still parse (0 errors, auxFrames ~200/s) |
-| B3 | Pin timing (logic analyser, if available) | Bit 3.33 us, T0H ~1.25 us, T1H ~2.5 us, 16 bits per frame, frames at 200 Hz, checksum valid, stop frames while disarmed, 3 motors |
+| B3 | Pin timing (logic analyser, if available) | Bit 3.33 us, T0H ~1.25 us, T1H ~2.5 us, 16 bits per frame, frames at 1 kHz, checksum valid, stop frames while disarmed, 3 motors |
 | B4 | ESC detects DShot | Power-up beeps as in the manual's "Normal operation" table, no calibration sequence |
 | B5 | INAV configurator motor test | Each motor alone at 1050 / 1200 / 1500: the right motor (M1 O4, M2 O6, M3 O5), stops on release and on the 200 ms timeout |
 | B6 | Armed via EVIS | Throttle sweep on all 3; disarm = stop; FW profile: rear motor stopped; FW->MC rear-motor step 1000 -> ~1450 starts cleanly (repeat 10x) |

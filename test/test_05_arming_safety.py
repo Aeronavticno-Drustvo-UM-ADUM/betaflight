@@ -41,7 +41,8 @@ SEV_CRITICAL, SEV_WARNING = mav.MAV_SEVERITY_CRITICAL, mav.MAV_SEVERITY_WARNING
 STANDBY, ACTIVE, CRITICAL = mav.MAV_STATE_STANDBY, mav.MAV_STATE_ACTIVE, mav.MAV_STATE_CRITICAL
 UNINIT = mav.MAV_STATE_UNINIT
 MOTOR_LATENCY_S = 0.05
-RATE_MIN = 120                     # SITL runs the servo task at ~150 Hz (measured 146-151), the target 200 Hz is a bench item
+RATE_MIN = 200                     # board target is 1 kHz (BLHeli_32 needs > 200 DShot frames/s); SITL measured 336-357/s
+RATE_MAX = 600                     # upper bound: catches a runaway task rate
 
 measured = {"fs_delay": [], "not_ready_latency": [], "rate": {}}
 
@@ -550,8 +551,8 @@ def s10_motor_rate(fx):
                 frames(fx, 0.1, armed)
         rates = fx.sitl.rates(t0 + 1.15)
         measured["rate"][state] = rates
-        check("%s: motor writes 120-250 per second (SITL task ~150 Hz, 200 Hz on the bench)" % state,
-              len(rates) >= 2 and all(RATE_MIN <= r <= 250 for r in rates), "writes/s %s" % rates)
+        check("%s: motor writes 200-600 per second (SITL ~350/s, 1 kHz on the board)" % state,
+              len(rates) >= 2 and all(RATE_MIN <= r <= RATE_MAX for r in rates), "writes/s %s" % rates)
 
     disarmed(fx, 0.5)
     sample("DISARMED", False)
