@@ -351,7 +351,8 @@ task_attribute_t task_attributes[TASK_COUNT] = {
 
 #ifdef USE_SERVO_DRIVER
     // No gyro, PID, accelerometer or receiver processing: the servo driver task replaces them
-    [TASK_SERVO_DRIVER] = DEFINE_TASK("SERVO_DRIVER", NULL, NULL, servoDriverUpdate, TASK_PERIOD_HZ(200), TASK_PRIORITY_HIGH),
+    // 1 kHz: one DShot frame per cycle; the Raptor5 (BLHeli_32) does not detect DShot at 200 Hz
+    [TASK_SERVO_DRIVER] = DEFINE_TASK("SERVO_DRIVER", NULL, NULL, servoDriverUpdate, TASK_PERIOD_HZ(1000), TASK_PRIORITY_HIGH),
 #else
     [TASK_GYRO] = DEFINE_TASK("GYRO", NULL, NULL, taskGyroSample, TASK_GYROPID_DESIRED_PERIOD, TASK_PRIORITY_REALTIME),
     [TASK_FILTER] = DEFINE_TASK("FILTER", NULL, NULL, taskFiltering, TASK_GYROPID_DESIRED_PERIOD, TASK_PRIORITY_REALTIME),
