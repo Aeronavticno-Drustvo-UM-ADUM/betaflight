@@ -20,7 +20,7 @@ import send_aux_channels as serial_io  # noqa: E402  (open_port)
 
 FTDI_PORT = "/dev/serial/by-id/usb-FTDI_Dual_RS232-HS-if01-port0"
 STLINK_USB_IDS = ("0483:3748", "0483:374b", "0483:374e", "0483:374f", "0483:3753", "0483:3754")  # V2, V2-1, V3 variants
-MASTER_BAUD = 115200
+MASTER_BAUD = 460800   # board UART1 default (target/SATELLITEBOARD/config.c)
 OPENOCD_ARGS = "-f interface/stlink.cfg -f target/stm32f1x.cfg".split()
 ELF_PATH = os.path.join(REPO_DIR, "obj", "main", "betaflight_SATELLITEBOARD.elf")
 

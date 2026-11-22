@@ -102,7 +102,7 @@ external range).
   widths). Replace the motor value check with a non-halting SWD read of the commanded value (`motor[]` for us, and the
   DShot value from `dmaMotors[i].protocolControl.value`) plus the static TIM1/DMA checks of B2. Pin-level checks only with
   the logic analyser.
-- Texts that say "standard PWM 400 Hz": `README.md`, `test/servo_config_board.txt`, `test/servo_config.txt:33-34`
+- Texts that say "standard PWM 400 Hz": `README.md`, `test/servo_config.txt:33-34`
   ("DShot is not available on the F103"), `STATUS.md`; INAV `docs/adum/tn18_aircraft.md` (motor protocol row),
   INAV `docs/adum/TODO.md` (ESC-RATE), INAV `STATUS.md`.
 

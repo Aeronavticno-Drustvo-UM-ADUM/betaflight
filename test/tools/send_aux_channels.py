@@ -8,7 +8,7 @@ sent at 50 Hz, board DISARMED and motors at 1000 us. Press Ctrl-C to stop.
 
   --arm               send arming_status = ARMED (the motors then follow --motors)
   --motors 1100,1100,1100   motor pulses in us; they only take effect with --arm
-  --port /dev/ttyUSB1 --baud 115200 --freq 0.5 --min 1000 --max 2000 --rate 50 --servos 5 --duration 10
+  --port /dev/ttyUSB1 --baud 460800 --freq 0.5 --min 1000 --max 2000 --rate 50 --servos 5 --duration 10
   --pinout            pinout check: move one PCB output header at a time (O1..O9, --step seconds each)
   --output O5         move only this PCB output header (O1..O9), continuously
 
@@ -32,7 +32,7 @@ import mavlink_gen as mav  # noqa: E402
 
 BAUDS = {
     9600: termios.B9600, 19200: termios.B19200, 38400: termios.B38400, 57600: termios.B57600,
-    115200: termios.B115200, 230400: termios.B230400,
+    115200: termios.B115200, 230400: termios.B230400, 460800: termios.B460800,
 }
 MOTOR_COUNT = 3
 SERVO_SLOTS = 8
@@ -105,7 +105,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("port_pos", nargs="?", metavar="PORT", help="serial device, e.g. /dev/ttyUSB0")
     ap.add_argument("--port", default=None, help="serial device (default /dev/ttyUSB0)")
-    ap.add_argument("--baud", type=int, default=115200, help="serial baud rate (default 115200)")
+    ap.add_argument("--baud", type=int, default=460800, help="serial baud rate (default 460800, board UART1)")
     ap.add_argument("--rate", type=float, default=50.0, help="frames per second (default 50)")
     ap.add_argument("--freq", type=float, default=0.5, help="sweep frequency in Hz (default 0.5)")
     ap.add_argument("--min", dest="lo", type=int, default=1000, help="sweep minimum in us (default 1000)")

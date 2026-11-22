@@ -60,7 +60,7 @@ AFIO_MAPR = 0x40010004     # TIM2 remap bits [9:8], SWJ_CFG bits [26:24] (SWJ_CF
 
 NM_PATH = "arm-none-eabi-nm"   # set from --nm in main()
 ELF_PATH = ""                  # set from --elf in main()
-MOTOR_MIN_US = 1000        # min_command in servo_config_board.txt
+MOTOR_MIN_US = 1000        # mincommand in target/SATELLITEBOARD/config.c
 SERVO_COUNT = 6
 ARM_EXPECTED_S = 1.5       # arm edge -> HEARTBEAT shows ARMED (HEARTBEAT is sent at 1 Hz)
 ARM_WAIT_MAX_S = 15.0      # how long to wait for a late arm before giving up
@@ -674,7 +674,7 @@ def check_failsafe(streamer, openocd_args, diag_address, tol_us, results):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--port", required=True, help="UART1 adapter, /dev/serial/by-id/...-if06")
-    parser.add_argument("--baud", type=int, default=115200)
+    parser.add_argument("--baud", type=int, default=460800)
     parser.add_argument("--armed", action="store_true", help="also run the armed motor steps 3 and 4")
     parser.add_argument("--props-off", action="store_true", help="confirm propellers are removed (needed with --armed)")
     parser.add_argument("--tol-us", type=float, default=2.0, help="pulse width tolerance in us (default 2)")
