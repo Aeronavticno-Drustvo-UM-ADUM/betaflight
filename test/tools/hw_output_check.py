@@ -313,6 +313,104 @@ def dshot_value_error(command):
     return command["dshot"] - expected_dshot_value(command["motor_us"])
 
 
+DSHOT_BUFFER_SYMBOL = "dshotDmaBuffer"
+DSHOT_BUFFER_WORDS_PER_MOTOR = 18       # 16 bit widths + 2 reset words (uint32 each)
+DSHOT_BIT_COUNT = 16
+DSHOT_BIT_0_TICKS = 7
+DSHOT_BIT_1_TICKS = 14
+DSHOT_FRAME_TOLERANCE = 2               # allowed value difference to the expected one
+DSHOT_FRAME_READ_ATTEMPTS = 5           # re-reads when a buffer is caught mid-rewrite
+
+
+def decode_dshot_buffer(words):
+    """Decodes one motor buffer (18 timer-tick words) into a frame dict.
+
+    Keys: bits (str, '?' for an unknown width), value, telemetry, checksum_ok, tail_ok, raw (the words).
+    value/telemetry/checksum_ok are None when a bit width is not 7 or 14 (undecodable).
+    """
+    bit_chars = []
+    for width in words[:DSHOT_BIT_COUNT]:
+        if width == DSHOT_BIT_1_TICKS:
+            bit_chars.append("1")
+        elif width == DSHOT_BIT_0_TICKS:
+            bit_chars.append("0")
+        else:
+            bit_chars.append("?")
+    bits = "".join(bit_chars)
+    tail_ok = all(word == 0 for word in words[DSHOT_BIT_COUNT:])
+    frame = {"bits": bits, "value": None, "telemetry": None, "checksum_ok": None,
+             "tail_ok": tail_ok, "raw": list(words)}
+    if "?" in bits:
+        return frame
+    packet = int(bits, 2)
+    data = packet >> 4
+    checksum = packet & 0xF
+    expected_checksum = (data ^ (data >> 4) ^ (data >> 8)) & 0xF
+    frame["value"] = packet >> 5
+    frame["telemetry"] = (packet >> 4) & 1
+    frame["checksum_ok"] = checksum == expected_checksum
+    return frame
+
+
+def read_dshot_frames(openocd_args, nm_path, elf_path, attempts=DSHOT_FRAME_READ_ATTEMPTS, retry_wait_s=0.003):
+    """DShot frames of M1-M3 decoded from dshotDmaBuffer over SWD (no halt): [frame dict, ...].
+
+    The CPU rewrites the buffer every 1 ms, so a read can mix old and new words. If any motor is
+    undecodable or has a bad checksum, all motors are re-read (up to attempts); the last read is returned.
+    """
+    base_address, _ = find_symbol_with_size(nm_path, elf_path, DSHOT_BUFFER_SYMBOL)
+    bytes_per_motor = 4 * DSHOT_BUFFER_WORDS_PER_MOTOR
+    frames = []
+    for _ in range(attempts):
+        addresses = []
+        for motor_index in range(MOTOR_COUNT_USED):
+            motor_address = base_address + bytes_per_motor * motor_index
+            for word_index in range(DSHOT_BUFFER_WORDS_PER_MOTOR):
+                addresses.append(motor_address + 4 * word_index)
+        words = read_memory_words(openocd_args, addresses)
+        frames = []
+        for motor_index in range(MOTOR_COUNT_USED):
+            motor_words = [words[address] for address in addresses[
+                motor_index * DSHOT_BUFFER_WORDS_PER_MOTOR:(motor_index + 1) * DSHOT_BUFFER_WORDS_PER_MOTOR]]
+            frames.append(decode_dshot_buffer(motor_words))
+        all_good = all(frame["checksum_ok"] for frame in frames)
+        if all_good:
+            break
+        time.sleep(retry_wait_s)
+    return frames
+
+
+def dshot_frame_error(frame, commanded_us):
+    """None if the frame is a valid frame for the commanded motor us, else a reason string."""
+    if frame["value"] is None:
+        return "undecodable frame (bits=%s)" % frame["bits"]
+    if not frame["checksum_ok"]:
+        return "bad checksum (bits=%s)" % frame["bits"]
+    if frame["telemetry"]:
+        return "telemetry bit set (bits=%s)" % frame["bits"]
+    if not frame["tail_ok"]:
+        return "tail words not zero (%s)" % frame["raw"][DSHOT_BIT_COUNT:]
+    expected_value = expected_dshot_value(commanded_us)
+    if abs(frame["value"] - expected_value) > DSHOT_FRAME_TOLERANCE:
+        return "value %d, expected %d +-%d" % (frame["value"], expected_value, DSHOT_FRAME_TOLERANCE)
+    return None
+
+
+def dshot_frame_selftest():
+    """Offline decoder check: stop frame OK, 1200 us frame OK, a corrupted word is rejected. Raises on failure."""
+    stop_words = [DSHOT_BIT_0_TICKS] * DSHOT_BIT_COUNT + [0, 0]
+    stop_frame = decode_dshot_buffer(stop_words)
+    assert dshot_frame_error(stop_frame, 1000) is None, stop_frame
+    bits_1200 = "0011011111001000"
+    words_1200 = [DSHOT_BIT_1_TICKS if bit == "1" else DSHOT_BIT_0_TICKS for bit in bits_1200] + [0, 0]
+    frame_1200 = decode_dshot_buffer(words_1200)
+    assert frame_1200["value"] == 446 and frame_1200["checksum_ok"], frame_1200
+    assert dshot_frame_error(frame_1200, 1200) is None, frame_1200
+    words_1200[3] = 9
+    assert dshot_frame_error(decode_dshot_buffer(words_1200), 1200) is not None
+    return True
+
+
 def read_dshot_static_config(openocd_args):
     """B2 static checks over SWD (no ESC needed). Returns [(name, ok, detail)].
 
@@ -452,6 +550,14 @@ def check_motor_values(results, label, commands, wanted_us_list, tol_us):
             abs(dshot_error) <= DSHOT_VALUE_TOLERANCE, "value=%d" % command["dshot"])
 
 
+def check_motor_frames(results, label, frames, wanted_us_list):
+    """Checks the decoded DShot frame of each motor against the wanted us (index order M1-M3)."""
+    for index, frame in enumerate(frames):
+        error = dshot_frame_error(frame, wanted_us_list[index])
+        results.check("%s M%d DShot frame valid (checksum, tail, value)" % (label, index + 1),
+                      error is None, error or "bits=%s value=%s" % (frame["bits"], frame["value"]))
+
+
 def match_outputs(commanded_us, measured_pins, pulses, tol_us):
     """Match each commanded value to the pin with the closest pulse. Returns {index: pin}, worst error in us."""
     mapping = {}
@@ -495,6 +601,8 @@ def check_motors_disarmed(streamer, openocd_args, tol_us, results):
     streamer.motors = [1300, 1400, 1500]
     commands = settle_and_read_motors(openocd_args)
     check_motor_values(results, "disarmed", commands, [MOTOR_MIN_US] * MOTOR_COUNT_USED, tol_us)
+    frames = read_dshot_frames(openocd_args, NM_PATH, ELF_PATH)
+    check_motor_frames(results, "disarmed", frames, [MOTOR_MIN_US] * MOTOR_COUNT_USED)
     streamer.motors = [mav.PULSE_IGNORE] * MOTOR_COUNT
 
 

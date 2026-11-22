@@ -79,6 +79,10 @@ def phase_disarmed_motors(results, streamer):
                       "motor[]=%.1f us with commanded %s" % (command["motor_us"], DISARMED_MOTOR_VALUES))
         results.check("motor %s DShot value is 0 (stop)" % motor_name, command["dshot"] == 0,
                       "dshot value=%d" % command["dshot"])
+    frame_errors = sat_bench.motor_frame_errors([hw.MOTOR_MIN_US] * len(commands))
+    for motor_name, frame_error in frame_errors.items():
+        results.check("motor %s DShot frame: stop value 0, checksum ok, tail 0" % motor_name,
+                      frame_error is None, frame_error or "frame valid")
     streamer.motors = [hw.mav.PULSE_IGNORE] * hw.MOTOR_COUNT
 
 

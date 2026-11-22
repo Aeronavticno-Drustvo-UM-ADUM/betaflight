@@ -92,6 +92,20 @@ def motor_dshot_errors():
     return {"M%d" % (index + 1): hw.dshot_value_error(command) for index, command in enumerate(commands)}
 
 
+def motor_dshot_frames():
+    """Decoded DShot frames of M1-M3 from dshotDmaBuffer over SWD (no halt, retries mid-rewrite reads)."""
+    return hw.read_dshot_frames(OPENOCD_ARGS, "nm", ELF_PATH)
+
+
+def motor_frame_errors(commanded):
+    """Frame error per motor for the commanded us list, {"M1": None or reason, ...}."""
+    frames = motor_dshot_frames()
+    errors = {}
+    for index, frame in enumerate(frames):
+        errors["M%d" % (index + 1)] = hw.dshot_frame_error(frame, commanded[index])
+    return errors
+
+
 def dshot_static_config():
     """B2 static checks over SWD: [(name, ok, detail)] for TIM1 and DMA1 Ch2/Ch3/Ch6."""
     return hw.read_dshot_static_config(OPENOCD_ARGS)
