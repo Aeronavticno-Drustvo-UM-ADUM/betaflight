@@ -86,14 +86,17 @@ def phase_disarmed_motors(results, streamer):
     streamer.motors = [hw.mav.PULSE_IGNORE] * hw.MOTOR_COUNT
 
 
-def phase_dshot_static(results):
-    """Phase 4: static B2 checks (TIM1 PSC/ARR/CCER/MOE, DMA1 Ch2/Ch3/Ch6) and the UART1 link error counters."""
+def phase_dshot_static(results, parse_errors_at_start):
+    """Phase 4: static B2 checks (TIM1 PSC/ARR/CCER/MOE, DMA1 Ch2/Ch3/Ch6) and no new UART1 parse errors."""
     results.start_phase("4", "DShot static config (B2)")
     for name, ok, detail in sat_bench.dshot_static_config():
         results.check(name, ok, detail)
     diag = sat_bench.diag()
-    results.check("UART1 parse errors stay 0 under DShot", diag["parseErrors"] == 0,
-                  "parseErrors=%d auxFrames=%d" % (diag["parseErrors"], diag["auxFrames"]))
+    # parseErrors counts since boot (hw_04 adds errors on purpose): only errors during this test count
+    new_parse_errors = diag["parseErrors"] - parse_errors_at_start
+    results.check("UART1 no new parse errors under DShot", new_parse_errors == 0,
+                  "new parseErrors=%d (total %d) auxFrames=%d" % (
+                      new_parse_errors, diag["parseErrors"], diag["auxFrames"]))
 
 
 def phase_pin_config(results):
@@ -135,12 +138,13 @@ def main():
         return results.finish()
 
     streamer = None
+    parse_errors_at_start = sat_bench.diag()["parseErrors"]
     try:
         streamer = sat_bench.start_master(armed=False, servos=[1500] * hw.SERVO_COUNT)
         phase_servos(results, streamer)
         phase_disarmed_motors(results, streamer)
         phase_pin_config(results)
-        phase_dshot_static(results)
+        phase_dshot_static(results, parse_errors_at_start)
     finally:
         if streamer is not None:
             streamer.stop()            # always stop the 50 Hz stream
