@@ -8,7 +8,7 @@ Scenarios:
  2. Disarmed frames: servos follow, motors stay at min_command
  3. Arm / disarm: motors follow the armed frame, zero at once on the disarm frame, HEARTBEAT armed flag
  4. Continuous 50 Hz stream with a servo sweep: monotonic, many distinct values, motors without glitch
- 5. Frame rates 10, 50, 100 Hz armed: outputs follow, no disarm
+ 5. Frame rates 10, 50, 100, 500 Hz armed: outputs follow, no disarm
  6. Frame -> output latency
  7. Clamps and special values, servos 7-8 ignored
  8. arming_status 2 / 255 counts as disarmed
@@ -80,10 +80,11 @@ def s4_sweep(fx):
 
 
 def s5_rates(fx):
-    """Frame rates 10, 50, 100 Hz while armed"""
+    """Frame rates 10, 50, 100 Hz and 500 Hz (the INAV rate) while armed"""
     for rate, motors, pose in ((10, [1300, 1400, 1450], [1111, 1222, 1333, 1444, 1555, 1666]),
                                (50, [1350, 1450, 1550], [1212, 1312, 1412, 1512, 1612, 1712]),
-                               (100, [1250, 1350, 1650], [1010, 1110, 1210, 1310, 1410, 1510])):
+                               (100, [1250, 1350, 1650], [1010, 1110, 1210, 1310, 1410, 1510]),
+                               (500, [1300, 1500, 1600], [1050, 1150, 1250, 1350, 1450, 1550])):
         fx.settle(True)
         t0 = time.monotonic()
         fx.link.frames(1.5, True, motors, pose, rate_hz=rate)
