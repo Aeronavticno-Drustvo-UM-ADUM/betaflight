@@ -3,7 +3,7 @@
 
   test/tools/hw_output_check.py --port <by-id UART1 adapter> [--armed --props-off]
 
-The script streams ADUM_AUX_CHANNELS at 50 Hz (like the master) and reads the timer compare registers
+The script streams ADUM_AUX_CHANNELS at a fixed 500 Hz (like the INAV master) and reads the timer compare registers
 (CCR) of the running board over ST-Link/OpenOCD. CCR / timer clock = the servo pulse width, so no scope is
 needed. Motors use DShot300 (CCR holds bit widths), so motors are checked through the commanded values
 (motor[] in us and dmaMotors[i].protocolControl.value) plus static TIM1/DMA checks (step 0, B2). Pin-level
@@ -65,7 +65,8 @@ SERVO_COUNT = 6
 ARM_EXPECTED_S = 1.5       # arm edge -> HEARTBEAT shows ARMED (HEARTBEAT is sent at 1 Hz)
 ARM_WAIT_MAX_S = 15.0      # how long to wait for a late arm before giving up
 MOTOR_COUNT = 3
-SWD_SETTLE_S = 0.3         # command -> SWD read of the board state (the board needs a few 20 ms frames)
+SWD_SETTLE_S = 0.3         # command -> SWD read of the board state (the board needs a few frames)
+FRAME_PERIOD_S = 0.002      # fixed 500 Hz, like the INAV master
 
 DIAG_MAGIC = 0x5D1A6001
 STATE_DISARMED, STATE_ARMED, STATE_FAILSAFE = 0, 1, 2
@@ -87,7 +88,7 @@ class Results:
 
 
 class FrameStreamer(threading.Thread):
-    """Sends ADUM_AUX_CHANNELS at 50 Hz from the shared state and tracks the board's HEARTBEAT."""
+    """Sends ADUM_AUX_CHANNELS at 500 Hz from the shared state and tracks the board's HEARTBEAT."""
 
     def __init__(self, fd):
         super().__init__(daemon=True)
@@ -111,7 +112,7 @@ class FrameStreamer(threading.Thread):
                 if not self.paused:
                     frame = self.generator.aux_channels(self.armed, list(self.motors), list(self.servos))
                     serial_io.write_all(self.fd, frame)
-                next_frame += 0.02
+                next_frame += FRAME_PERIOD_S
                 if next_frame < now - 1.0:
                     next_frame = now
             for msgid, payload in self.parser.feed(serial_io.read_available(self.fd)):

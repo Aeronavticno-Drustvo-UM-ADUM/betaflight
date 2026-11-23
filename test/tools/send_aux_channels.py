@@ -4,11 +4,11 @@
   test/tools/send_aux_channels.py [PORT] [options]
 
 Default: a 0.5 Hz sine sweep of servos 1-5 between 1000 and 2000 us (each servo shifted in phase),
-sent at 50 Hz, board DISARMED and motors at 1000 us. Press Ctrl-C to stop.
+sent at 500 Hz (the INAV rate), board DISARMED and motors at 1000 us. Press Ctrl-C to stop.
 
   --arm               send arming_status = ARMED (the motors then follow --motors)
   --motors 1100,1100,1100   motor pulses in us; they only take effect with --arm
-  --port /dev/ttyUSB1 --baud 460800 --freq 0.5 --min 1000 --max 2000 --rate 50 --servos 5 --duration 10
+  --port /dev/ttyUSB1 --baud 460800 --freq 0.5 --min 1000 --max 2000 --rate 500 --servos 5 --duration 10
   --pinout            pinout check: move one PCB output header at a time (O1..O9, --step seconds each)
   --output O5         move only this PCB output header (O1..O9), continuously
 
@@ -106,7 +106,7 @@ def main():
     ap.add_argument("port_pos", nargs="?", metavar="PORT", help="serial device, e.g. /dev/ttyUSB0")
     ap.add_argument("--port", default=None, help="serial device (default /dev/ttyUSB0)")
     ap.add_argument("--baud", type=int, default=460800, help="serial baud rate (default 460800, board UART1)")
-    ap.add_argument("--rate", type=float, default=50.0, help="frames per second (default 50)")
+    ap.add_argument("--rate", type=float, default=500.0, help="frames per second (default 500, the INAV rate)")
     ap.add_argument("--freq", type=float, default=0.5, help="sweep frequency in Hz (default 0.5)")
     ap.add_argument("--min", dest="lo", type=int, default=1000, help="sweep minimum in us (default 1000)")
     ap.add_argument("--max", dest="hi", type=int, default=2000, help="sweep maximum in us (default 2000)")

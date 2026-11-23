@@ -1,6 +1,6 @@
 # Satellite standalone hardware tests
 
-Bench: FTDI adapter on satellite UART1 = fake master (50 Hz AUX frames, reads HEARTBEAT/STATUSTEXT); ST-Link SWD =
+Bench: FTDI adapter on satellite UART1 = fake master (500 Hz AUX frames at 460800, like INAV; reads HEARTBEAT/STATUSTEXT); ST-Link SWD =
 ground truth (diag block, timer CCR pulses). The real master (EVIS) must NOT be on the satellite link; the
 preflight detects it (auxFrames rising while the FTDI is silent).
 

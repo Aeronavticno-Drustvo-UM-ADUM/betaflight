@@ -123,7 +123,7 @@ def pin_config():
 
 
 def start_master(armed=False, motors=None, servos=None):
-    """Opens the FTDI port and starts the 50 Hz AUX frame stream (hw.FrameStreamer, started).
+    """Opens the FTDI port and starts the 500 Hz AUX frame stream (hw.FrameStreamer, started).
 
     The streamer also parses the board's HEARTBEAT (.board_armed, .heartbeat_time) and STATUSTEXT (.status_texts).
     Stop it with .stop(); it also holds .fd, .paused (link loss) and the shared .armed/.motors/.servos.

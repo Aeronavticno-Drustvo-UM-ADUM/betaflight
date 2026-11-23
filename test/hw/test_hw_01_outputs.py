@@ -147,7 +147,7 @@ def main():
         phase_dshot_static(results, parse_errors_at_start)
     finally:
         if streamer is not None:
-            streamer.stop()            # always stop the 50 Hz stream
+            streamer.stop()            # always stop the 500 Hz stream
     return results.finish()
 
 
