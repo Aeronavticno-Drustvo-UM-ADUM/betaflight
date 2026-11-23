@@ -46,19 +46,20 @@ static void setPortDefaults(serialPortIdentifier_e identifier, serialPortFunctio
 }
 
 // Board defaults (owner, 2026-11-14): the satellite works without any saved config, so a missing or broken
-// config still gives the MAVLink link to the master. Same content as test/servo_config_board.txt, motors on PWM.
+// config still gives the MAVLink link to the master.
 void targetConfiguration(void)
 {
-    setPortDefaults(SERIAL_PORT_USART1, FUNCTION_TELEMETRY_MAVLINK, BAUD_115200);   // link to the master
+    setPortDefaults(SERIAL_PORT_USART1, FUNCTION_TELEMETRY_MAVLINK, BAUD_460800);   // link to the master (the CLI cannot set > 115200 here)
     setPortDefaults(SERIAL_PORT_USART2, FUNCTION_GPS, BAUD_115200);                 // GPS connector
 
     featureConfigSet(FEATURE_GPS);
     gpsConfigMutable()->provider = GPS_UBLOX;
     gpsConfigMutable()->autoConfig = GPS_AUTOCONFIG_ON;
 
-    // Standard PWM for now (OneShot125 / DShot later); Betaflight's default is "disabled"
-    motorConfigMutable()->dev.motorPwmProtocol = PWM_TYPE_STANDARD;
-    motorConfigMutable()->dev.motorPwmRate = 400;                                   // standard PWM, 2.5 ms period (fits the 2000 us max pulse)
+    // DShot300, output only (no telemetry, no bidirectional); motorPwmRate does not apply (one frame per update)
+    // Fallback to standard PWM: PWM_TYPE_STANDARD and motorPwmRate = 400 (2.5 ms period, fits the 2000 us max pulse)
+    // Fallback if long wires cause trouble: PWM_TYPE_DSHOT150
+    motorConfigMutable()->dev.motorPwmProtocol = PWM_TYPE_DSHOT300;
     motorConfigMutable()->mincommand = 1000;
     motorConfigMutable()->maxthrottle = 2000;
 }

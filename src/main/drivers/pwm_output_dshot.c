@@ -40,6 +40,8 @@
 #include "stm32f4xx.h"
 #elif defined(STM32F3)
 #include "stm32f30x.h"
+#elif defined(STM32F1)
+#include "stm32f10x.h"
 #endif
 
 #include "pwm_output.h"
@@ -98,7 +100,7 @@ FAST_CODE void pwmDshotSetDirectionOutput(
 
 #ifdef USE_DSHOT_DMAR
     if (useBurstDshot) {
-#if defined(STM32F3)
+#if defined(STM32F3) || defined(STM32F1)
         pDmaInit->DMA_DIR = DMA_DIR_PeripheralDST;
 #else
         pDmaInit->DMA_DIR = DMA_DIR_MemoryToPeripheral;
@@ -106,7 +108,7 @@ FAST_CODE void pwmDshotSetDirectionOutput(
     } else
 #endif
     {
-#if defined(STM32F3)
+#if defined(STM32F3) || defined(STM32F1)
         pDmaInit->DMA_DIR = DMA_DIR_PeripheralDST;
         pDmaInit->DMA_M2M = DMA_M2M_Disable;
 #elif defined(STM32F4)
@@ -147,7 +149,7 @@ static void pwmDshotSetDirectionInput(
 
     TIM_ICInit(timer, &motor->icInitStruct);
 
-#if defined(STM32F3)
+#if defined(STM32F3) || defined(STM32F1)
     motor->dmaInitStruct.DMA_DIR = DMA_DIR_PeripheralSRC;
     motor->dmaInitStruct.DMA_M2M = DMA_M2M_Disable;
 #elif defined(STM32F4)
@@ -304,16 +306,25 @@ bool pwmDshotMotorHardwareConfig(const timerHardware_t *timerHardware, uint8_t m
 
     const IO_t motorIO = IOGetByTag(timerHardware->tag);
 
+#if !defined(STM32F1)
+    // F1 GPIO has no pull-up/down setting in AF mode
     uint8_t pupMode = 0;
     pupMode = (output & TIMER_OUTPUT_INVERTED) ? GPIO_PuPd_DOWN : GPIO_PuPd_UP;
+#endif
 #ifdef USE_DSHOT_TELEMETRY
     if (useDshotTelemetry) {
         output ^= TIMER_OUTPUT_INVERTED;
     }
 #endif
 
+#if defined(STM32F1)
+    // F1 has no alternate function number: AF push-pull is enough
+    motor->iocfg = IOCFG_AF_PP;
+    IOConfigGPIO(motorIO, motor->iocfg);
+#else
     motor->iocfg = IO_CONFIG(GPIO_Mode_AF, GPIO_Speed_50MHz, GPIO_OType_PP, pupMode);
     IOConfigGPIOAF(motorIO, motor->iocfg, timerHardware->alternateFunction);
+#endif
 
     if (configureTimer) {
         TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
@@ -375,7 +386,7 @@ bool pwmDshotMotorHardwareConfig(const timerHardware_t *timerHardware, uint8_t m
     if (useBurstDshot) {
         motor->timer->dmaBurstBuffer = &dshotBurstDmaBuffer[timerIndex][0];
 
-#if defined(STM32F3)
+#if defined(STM32F3) || defined(STM32F1)
         DMAINIT.DMA_MemoryBaseAddr = (uint32_t)motor->timer->dmaBurstBuffer;
         DMAINIT.DMA_DIR = DMA_DIR_PeripheralDST;
 #else
@@ -400,7 +411,7 @@ bool pwmDshotMotorHardwareConfig(const timerHardware_t *timerHardware, uint8_t m
     {
         motor->dmaBuffer = &dshotDmaBuffer[motorIndex][0];
 
-#if defined(STM32F3)
+#if defined(STM32F3) || defined(STM32F1)
         DMAINIT.DMA_MemoryBaseAddr = (uint32_t)motor->dmaBuffer;
         DMAINIT.DMA_DIR = DMA_DIR_PeripheralDST;
         DMAINIT.DMA_M2M = DMA_M2M_Disable;
@@ -426,10 +437,12 @@ bool pwmDshotMotorHardwareConfig(const timerHardware_t *timerHardware, uint8_t m
 
     motor->dmaRef = dmaRef;
 
+    // Bit period restored into ARR before every frame (pwmCompleteDshotMotorUpdate); needed with or without telemetry
+    motor->timer->outputPeriod = (pwmProtocolType == PWM_TYPE_PROSHOT1000 ? (MOTOR_NIBBLE_LENGTH_PROSHOT) : MOTOR_BITLENGTH) - 1;
+
 #ifdef USE_DSHOT_TELEMETRY
     motor->dshotTelemetryDeadtimeUs = DSHOT_TELEMETRY_DEADTIME_US + 1000000 *
         (16 * MOTOR_BITLENGTH) / getDshotHz(pwmProtocolType);
-    motor->timer->outputPeriod = (pwmProtocolType == PWM_TYPE_PROSHOT1000 ? (MOTOR_NIBBLE_LENGTH_PROSHOT) : MOTOR_BITLENGTH) - 1;
     pwmDshotSetDirectionOutput(motor);
 #else
     pwmDshotSetDirectionOutput(motor, &OCINIT, &DMAINIT);

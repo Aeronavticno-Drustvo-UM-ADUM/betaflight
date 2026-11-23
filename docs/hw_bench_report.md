@@ -62,3 +62,17 @@ INAV EVIS_FC (F405, `USE_ADUM_SATELLITE`) UART3 -> board UART1 (PB6/PB7), 115200
 | INAV TX wire pulled ~12 s while armed | 1->2 FAILSAFE cause `LINK_TIMEOUT`; INAV stays armed; wire back: 2->1 `FAILSAFE_RECOVER`, `newSessions` 2; 3 parse errors from the plugging |
 
 Failsafe delay measured exactly later (last AUX frame -> FAILSAFE, `lastAuxUs` vs `lastTransitionMs` over SWD): 500.0 / 499.4 / 503.3 ms, and 504.5 / 503.2 / 503.4 ms in INAV `hw/manual/test_01_link_pull.py`; motors 135 -> 125 us (CCR). Output pins not read on this link. Unexplained single EVIS_FC reboot during one SWD halt of the board (board not reset); INAV TODO EVIS-RST.
+
+## DShot300 on the board (2026-11-22)
+Plan: `docs/dshot_output.md`. Setup: ST-Link V3 (SWD), FTDI channel B on UART1 (fake master), Flycolor Raptor5 ESC + motor on M1 (O4), no propellers.
+
+| Check | Result |
+|---|---|
+| B2 static (`hw_01` phase 4) | First build: **TIM1 ARR = 0**. Upstream bug: `outputPeriod` set only under `USE_DSHOT_TELEMETRY`, `pwmCompleteDshotMotorUpdate` writes `ARR = outputPeriod` every frame (still in upstream master). Fixed `34ebf7601`. After the fix: PSC 11, ARR 19, CC1-CC3, MOE, DMA1 Ch2/3/6 to TIM1 CCR1-3 (32 bit, mem->periph), UART1 parse errors 0: 30/30 |
+| Frame content (SWD, `dshotDmaBuffer`) | Stop frame 16 x 7 ticks + 2 x 0; armed 1050/1200/1500 us -> 146/446/1046, checksum valid |
+| B4 ESC detects DShot | **Not at 200 frames/s** (DShot300 and DShot150): ESC silent at power-up, no reaction. PWM 400 Hz on the same pin: works. At **1000 frames/s** (servo task 1 kHz, `ffebdfb08`): detected, runs |
+| B5 standalone (FTDI, M1) | 1000 armed still, 1050/1200/1500 increasing speed, 1000 stop, stop ~0.5 s after each link loss (owner observed) |
+| CPU load at 1 kHz | 5.2 % task time with the link at 100 frames/s; servo task 1004 us cycle, max 300 us execution |
+| `test/hw` suite hw_01-04 at 1 kHz | 106 checks, 0 failed; failsafe delay 499.9-500.6 ms (was 502.8-504.2 ms at 200 Hz) |
+
+Notes: the first ESC observations (beeping, a spin while disarmed) came from the ESC plugged into a servo header (old motor pin before the 2026-11-14 pinout change); not a firmware fault. The ESC detects the protocol only at power-up: power-cycle it after every satellite reflash. Open: B6, B7 (EVIS master, DS4 reset-while-armed data), B3 (logic analyser), B8, B9.

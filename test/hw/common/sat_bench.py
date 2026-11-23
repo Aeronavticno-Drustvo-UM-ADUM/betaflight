@@ -20,7 +20,7 @@ import send_aux_channels as serial_io  # noqa: E402  (open_port)
 
 FTDI_PORT = "/dev/serial/by-id/usb-FTDI_Dual_RS232-HS-if01-port0"
 STLINK_USB_IDS = ("0483:3748", "0483:374b", "0483:374e", "0483:374f", "0483:3753", "0483:3754")  # V2, V2-1, V3 variants
-MASTER_BAUD = 115200
+MASTER_BAUD = 460800   # board UART1 default (target/SATELLITEBOARD/config.c)
 OPENOCD_ARGS = "-f interface/stlink.cfg -f target/stm32f1x.cfg".split()
 ELF_PATH = os.path.join(REPO_DIR, "obj", "main", "betaflight_SATELLITEBOARD.elf")
 
@@ -75,10 +75,40 @@ def failsafe_delay_ms():
     return delay_ms
 
 
+def motor_commands():
+    """Commanded motor values over SWD (no halt): [{'motor_us': float, 'dshot': int}, ...] for M1-M3."""
+    return hw.read_motor_commands(OPENOCD_ARGS, "nm", ELF_PATH)
+
+
 def motor_pulses_us():
-    """Motor pin pulse widths in us {pin: us} (from the timer CCR registers over SWD)."""
-    pulses, _moe = hw.read_pulses_us(OPENOCD_ARGS)
-    return {pin: pulses[pin] for pin in hw.MOTOR_PINS}
+    """Commanded motor values in us {"M1": us, ...} from motor[] (DShot: the timer CCR is not a pulse width)."""
+    commands = motor_commands()
+    return {"M%d" % (index + 1): command["motor_us"] for index, command in enumerate(commands)}
+
+
+def motor_dshot_errors():
+    """DShot value minus expected value (from motor[]) per motor, {"M1": error, ...}."""
+    commands = motor_commands()
+    return {"M%d" % (index + 1): hw.dshot_value_error(command) for index, command in enumerate(commands)}
+
+
+def motor_dshot_frames():
+    """Decoded DShot frames of M1-M3 from dshotDmaBuffer over SWD (no halt, retries mid-rewrite reads)."""
+    return hw.read_dshot_frames(OPENOCD_ARGS, "nm", ELF_PATH)
+
+
+def motor_frame_errors(commanded):
+    """Frame error per motor for the commanded us list, {"M1": None or reason, ...}."""
+    frames = motor_dshot_frames()
+    errors = {}
+    for index, frame in enumerate(frames):
+        errors["M%d" % (index + 1)] = hw.dshot_frame_error(frame, commanded[index])
+    return errors
+
+
+def dshot_static_config():
+    """B2 static checks over SWD: [(name, ok, detail)] for TIM1 and DMA1 Ch2/Ch3/Ch6."""
+    return hw.read_dshot_static_config(OPENOCD_ARGS)
 
 
 def servo_pulses_us():
@@ -93,7 +123,7 @@ def pin_config():
 
 
 def start_master(armed=False, motors=None, servos=None):
-    """Opens the FTDI port and starts the 50 Hz AUX frame stream (hw.FrameStreamer, started).
+    """Opens the FTDI port and starts the 500 Hz AUX frame stream (hw.FrameStreamer, started).
 
     The streamer also parses the board's HEARTBEAT (.board_armed, .heartbeat_time) and STATUSTEXT (.status_texts).
     Stop it with .stop(); it also holds .fd, .paused (link loss) and the shared .armed/.motors/.servos.

@@ -27,7 +27,7 @@ Master (flight controller) requirements: section 11.
 | `ARMED` | follow armed frames, clamped | follow valid frames | `SAFETY_ARMED` / `MAV_STATE_ACTIVE` |
 | `FAILSAFE` (armed intent, link lost) | `min_command` | hold the last valid value | `SAFETY_ARMED` cleared / `MAV_STATE_CRITICAL` |
 
-The motor output is written **on every task cycle (200 Hz)** in every state, not only when a frame arrives. This fixes TODO A: the ESCs always see a continuous pulse train, including `min_command` in failsafe.
+The motor output is written **on every task cycle (1 kHz target; BLHeli_32 needs > 200 DShot frames/s, bench 2026-11-22)** in every state, not only when a frame arrives. This fixes TODO A: the ESCs always see a continuous pulse train, including `min_command` in failsafe.
 
 ## 3. Transitions
 | From | To | Condition | Notes |
@@ -94,7 +94,7 @@ Until the ADUM dialect has dedicated messages, standard common messages are used
 - a frame with an unknown message id does not make the board not ready;
 - config commands refused while armed and in failsafe;
 - FAILSAFE never times out (stays FAILSAFE for 60 s, then recovers with an armed frame);
-- continuous motor writes at 200 Hz in every state (needs a SITL hook that counts motor writes);
+- continuous motor writes at 1 kHz in every state (needs a SITL hook that counts motor writes);
 - HEARTBEAT `system_status` per state; SYS_STATUS counters;
 - parser reset after 1 s of silence.
 
@@ -117,7 +117,7 @@ Until the ADUM dialect has dedicated messages, standard common messages are used
 - Config PG: `servoDriverConfig`, `PG_SERVO_DRIVER_CONFIG` 557 (`pg_ids.h`), registered in `servo_driver.c`. `sd_link_timeout_ms` 100-5000, `sd_boot_grace_ms` 0-10000.
 - IWDG: prescaler 32, reload 312 (250 ms nominal), STM32F10X only; fed every task cycle and in `config_streamer` erase/program. It also keeps running after CLI `bl` (TODO J).
 - UART re-init after 2 s silence is skipped on SITL.
-- SITL motor write rate is about 150/s (SITL task rate); 200 Hz to be verified on the bench.
+- SITL motor write rate: see test_05 (SITL task rate is below the 1 kHz board target); 1 kHz verified on the bench (CPU 5.2 %).
 
 ## 11. Master requirements (flight controller side, e.g. INAV)
 What the master must do so that the rule above holds end to end. No dialect change: HEARTBEAT and STATUSTEXT from the common set.

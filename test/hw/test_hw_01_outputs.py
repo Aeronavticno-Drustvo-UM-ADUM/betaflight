@@ -2,8 +2,9 @@
 """HW 01: satellite servo outputs and disarmed motors (standalone bench, does not arm).
 
 Phase 1: several commanded servo patterns, each servo pulse within tolerance, stable index -> pin mapping.
-Phase 2: motor values in disarmed frames are ignored, motors stay at min_command (standard PWM, 1000 us).
+Phase 2: motor values in disarmed frames are ignored, motor[] stays 1000 us and the DShot value is 0 (read over SWD).
 Phase 3: pin level: timer channel output enabled (CCER, TIM1 MOE) and GPIO alternate-function push-pull for every pin.
+Phase 4: static DShot checks (B2): TIM1 PSC/ARR/CCER/MOE, DMA1 Ch2/Ch3/Ch6, UART1 parse errors 0.
 
 Run via test/hw/run_hw_tests.py, or: python3 test_hw_01_outputs.py --run-dir DIR
 Exit codes: 0 passed, 1 check failed, 2 setup impossible.
@@ -35,10 +36,10 @@ def read_servo_pulses():
     return sat_bench.servo_pulses_us()
 
 
-def read_motor_pulses():
-    """Waits for the board to settle, then reads the motor pulse widths in us {pin: us} over SWD."""
+def read_motor_commands():
+    """Waits for the board to settle, then reads the commanded motor values over SWD (motor[] us and DShot value)."""
     sat_bench.time.sleep(SETTLE_S)
-    return sat_bench.motor_pulses_us()
+    return sat_bench.motor_commands()
 
 
 def phase_servos(results, streamer):
@@ -65,17 +66,37 @@ def phase_servos(results, streamer):
 
 
 def phase_disarmed_motors(results, streamer):
-    """Phase 2: motor values in disarmed frames are ignored, motors stay at min_command (1000 us, standard PWM)."""
+    """Phase 2: motor values in disarmed frames are ignored: motor[] = 1000 us and DShot value 0 (stop)."""
     results.start_phase("2", "motors, disarmed")
     streamer.armed = False
     streamer.motors = list(DISARMED_MOTOR_VALUES)
-    pulses = read_motor_pulses()
-    idle_us = hw.MOTOR_MIN_US
-    for pin in hw.MOTOR_PINS:
-        error_us = abs(pulses[pin] - idle_us)
-        results.check("motor %s stays at min_command (%.1f us)" % (pin, idle_us), error_us <= PULSE_TOLERANCE_US,
-                      "measured %.1f us with commanded %s" % (pulses[pin], DISARMED_MOTOR_VALUES))
+    commands = read_motor_commands()
+    for index, command in enumerate(commands):
+        motor_name = "M%d" % (index + 1)
+        us_error = abs(command["motor_us"] - hw.MOTOR_MIN_US)
+        results.check("motor %s motor[] stays at min_command (%d us)" % (motor_name, hw.MOTOR_MIN_US),
+                      us_error <= PULSE_TOLERANCE_US,
+                      "motor[]=%.1f us with commanded %s" % (command["motor_us"], DISARMED_MOTOR_VALUES))
+        results.check("motor %s DShot value is 0 (stop)" % motor_name, command["dshot"] == 0,
+                      "dshot value=%d" % command["dshot"])
+    frame_errors = sat_bench.motor_frame_errors([hw.MOTOR_MIN_US] * len(commands))
+    for motor_name, frame_error in frame_errors.items():
+        results.check("motor %s DShot frame: stop value 0, checksum ok, tail 0" % motor_name,
+                      frame_error is None, frame_error or "frame valid")
     streamer.motors = [hw.mav.PULSE_IGNORE] * hw.MOTOR_COUNT
+
+
+def phase_dshot_static(results, parse_errors_at_start):
+    """Phase 4: static B2 checks (TIM1 PSC/ARR/CCER/MOE, DMA1 Ch2/Ch3/Ch6) and no new UART1 parse errors."""
+    results.start_phase("4", "DShot static config (B2)")
+    for name, ok, detail in sat_bench.dshot_static_config():
+        results.check(name, ok, detail)
+    diag = sat_bench.diag()
+    # parseErrors counts since boot (hw_04 adds errors on purpose): only errors during this test count
+    new_parse_errors = diag["parseErrors"] - parse_errors_at_start
+    results.check("UART1 no new parse errors under DShot", new_parse_errors == 0,
+                  "new parseErrors=%d (total %d) auxFrames=%d" % (
+                      new_parse_errors, diag["parseErrors"], diag["auxFrames"]))
 
 
 def phase_pin_config(results):
@@ -117,14 +138,16 @@ def main():
         return results.finish()
 
     streamer = None
+    parse_errors_at_start = sat_bench.diag()["parseErrors"]
     try:
         streamer = sat_bench.start_master(armed=False, servos=[1500] * hw.SERVO_COUNT)
         phase_servos(results, streamer)
         phase_disarmed_motors(results, streamer)
         phase_pin_config(results)
+        phase_dshot_static(results, parse_errors_at_start)
     finally:
         if streamer is not None:
-            streamer.stop()            # always stop the 50 Hz stream
+            streamer.stop()            # always stop the 500 Hz stream
     return results.finish()
 
 

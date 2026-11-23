@@ -37,7 +37,7 @@ HEARTBEAT_PERIOD_MAX_S = 1.5
 ARM_REPORT_MAX_S = 1.5          # armed frame -> HEARTBEAT ARMED
 DISARM_REPORT_MAX_S = 1.5
 SWD_SETTLE_S = 0.4              # let the board process frames before reading the diag block
-FRAME_PERIOD_S = 0.02
+FRAME_PERIOD_S = bench.hw.FRAME_PERIOD_S
 DISARMED_FRAMES_BEFORE_ARM = 2
 
 

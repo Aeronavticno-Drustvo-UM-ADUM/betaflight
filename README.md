@@ -7,20 +7,20 @@ Fork of [Betaflight](https://github.com/betaflight/betaflight) 4.3.x (MSP API 1.
 
 ## System
 
-The master flight controller is INAV on EVIS_FC in the fuselage (sibling repo `../inav`, branch `adum-master10`). The SATELLITEBOARD sits in the wing, so only power and one bus cable run between the fuselage and the wing.
+The master flight controller is INAV on EVIS_FC in the fuselage (sibling repo `../inav`, branch `adum-master10+sat`). The SATELLITEBOARD sits in the wing, so only power and one bus cable run between the fuselage and the wing.
 
 ```
  EVIS_FC, fuselage (INAV, ../inav)          SATELLITEBOARD, wing (this repo)
- master: sensors, navigation, mixer  ---->  6 servos, 3 motors (standard PWM 50 Hz)
-                                    UART1   MAVLink 2, ADUM dialect, 100 Hz ADUM_AUX_CHANNELS
+ master: sensors, navigation, mixer  ---->  5 servos, 3 motors (OneShot125)
+                                    UART1   MAVLink 2, ADUM dialect, 50 Hz ADUM_AUX_CHANNELS
                                     <----   HEARTBEAT (ready to arm), STATUSTEXT, SYS_STATUS, ADUM_GPS_PVT
 ```
 
 The rule (D8, spec [`docs/arming_safety.md`](docs/arming_safety.md)): the master is primary. Master armed = satellite armed; the satellite never refuses an ARMED frame. Only total link loss (no valid frame for 500 ms) stops the motors (FAILSAFE), and the satellite follows the master again as soon as frames return. The satellite reports whether it is ready to arm; INAV blocks its own arming until it is.
 
-Status (2026-11-20): arming, failsafe, motor test and safety logic implemented; new 9-output pinout. SITL suite passes (`test/run_tests.py`). On the bench, the combined suites with EVIS_FC in the INAV repo pass on the new pinout; the standalone suite `test/hw/` passed on the old pinout and is not yet rerun. Failsafe delay 499-505 ms. Current state: [`STATUS.md`](STATUS.md); path to the first flight: `../inav/docs/adum/flight_readiness.md`.
+Status (2026-11-13): arming, failsafe and safety logic implemented. SITL suite passes (`test/run_tests.py`). On the bench, the standalone suite `test/hw/` (hw_01-04) and the combined suites with EVIS_FC in the INAV repo pass; failsafe delay 499-505 ms. Not yet tested in the aircraft (real ESCs, servos, power). Current state: [`STATUS.md`](STATUS.md); path to the first flight: `../inav/docs/adum/flight_readiness.md`.
 
-Branch: `adum-master`. Rules for agents: [`CLAUDE.md`](CLAUDE.md).
+Branch: `master+adum+sat`. Rules for agents: [`CLAUDE.md`](CLAUDE.md).
 
 ## Hardware (`src/main/target/SATELLITEBOARD/`)
 
@@ -39,7 +39,7 @@ connector (GPS), UART3 header (G 5V T3 R3), SWD header (G C D 3V), ESC and batte
 
 Output headers O1-O9 and their use in the SATELLITEBOARD target (`target.c`, 2026-11-14). Names: **O1-O9** = PCB output
 header, **S1-S6** = servo 1-6 and **M1-M3** = motor 1-3 = the index in the ADUM_AUX_CHANNELS frame. Design: 3 motors
-alone on TIM1 (DShot-capable later) + 6 PWM servos on TIM3 and TIM2. A timer has one period for all its channels, so
+alone on TIM1 (DShot300) + 6 PWM servos on TIM3 and TIM2. A timer has one period for all its channels, so
 servos never share a timer with the motors.
 
 | Output | Function | MCU pin | Timer | DMA1 channel (also requested by) | DMA |
@@ -62,21 +62,20 @@ servos never share a timer with the motors.
   without DMA. So the motor channels Ch2, Ch3, Ch6 are free: keep SPI1, UART2, UART3 and I2C1 without DMA.
 - DShot: per channel (Ch2, Ch6, Ch3). Burst mode would need TIM1_UP = Ch5, taken by UART1 RX.
   Betaflight's F1 table had TIM1_CH2 as NONE; corrected to Ch3 (`drivers/timer_def.h`).
-- Today nothing on the outputs uses DMA (servos and motors standard PWM). Betaflight has no DShot for F1
-  (`USE_DSHOT` is set from F3 up in `common_pre.h`): DShot here would be a port.
+- Motors use DMA for DShot300 (F3 DShot driver built for F1, `29b7036de`); servos are plain PWM.
 - TIM1 is an advanced timer: outputs need MOE (main output enable), checked by the bench pin test.
 
-**Config:** the board always boots on compiled defaults (`target/SATELLITEBOARD/config.c`: MAVLink on UART1 115200, GPS on
-UART2, motors standard PWM 400 Hz 1000-2000 us). A saved config is never loaded (`USE_CONFIG_DEFAULTS_ONLY`, `config/config.c`
+**Config:** the board always boots on compiled defaults (`target/SATELLITEBOARD/config.c`: MAVLink on UART1 460800 with a 512 B RX buffer, GPS on
+UART2, motors DShot300 output only, 1000-2000 us external range; PWM 400 Hz fallback in config.c). A saved config is never loaded (`USE_CONFIG_DEFAULTS_ONLY`, `config/config.c`
 `readEEPROM()`): CLI `set`/`save` changes last only until the next reboot. To change the config, edit `config.c` and flash.
 
 ## How it works
 
-- `USE_SERVO_DRIVER` (set in `target.h`) removes the gyro, filter, PID, accelerometer, attitude and RX tasks and the matching init in `main()`. They are replaced by one task (200 Hz target rate; about 150 Hz on SITL), `src/main/io/servo_driver.c`.
-- The master flight controller talks MAVLink 2.0 with the ADUM dialect (`lib/main/MAVLink_adum`, generated from `adum.xml` in the INAV fork; MAVLink 1.0 headers stay for the other targets). Put the **MAVLink** telemetry function on a UART (Ports tab or CLI `serial`, 115200 baud). `test/servo_config.txt` is a ready CLI configuration, GPS included.
+- `USE_SERVO_DRIVER` (set in `target.h`) removes the gyro, filter, PID, accelerometer, attitude and RX tasks and the matching init in `main()`. They are replaced by one task (1 kHz target rate; lower on SITL), `src/main/io/servo_driver.c`.
+- The master flight controller talks MAVLink 2.0 with the ADUM dialect (`lib/main/MAVLink_adum`, generated from `adum.xml` in the INAV fork; MAVLink 1.0 headers stay for the other targets). Put the **MAVLink** telemetry function on a UART (Ports tab or CLI `serial`; the CLI accepts at most 115200 for telemetry, the SATELLITEBOARD sets 460800 in `config.c`). `test/servo_config.txt` is a ready CLI configuration, GPS included.
 - **`ADUM_AUX_CHANNELS`** (id 13002) from the master: `arming_status`, `servo[8]`, `motor[3]` in us. The board outputs servos 1-6 and motors 1-3; servos 7-8 are ignored. 0 and 65535 mean "no value". sysid/compid are not checked yet.
 - **Servos** always move to the pulse that arrives, armed or not. The configurator servo limits are ignored; only a 500-2500 us clamp applies. Before the first frame they sit at `servo_center_pulse`.
-- **Motors** stay at zero throttle (`min_command` pulse) unless the board is ARMED. The motor values of an armed frame are applied at once; a disarmed frame sets the motors to zero. Values are clamped to `min_command`..`max_throttle`. The motor output is written on every task cycle (200 Hz target) in every state, so the ESCs always see a continuous pulse train.
+- **Motors** stay at zero throttle (`min_command` pulse) unless the board is ARMED. The motor values of an armed frame are applied at once; a disarmed frame sets the motors to zero. Values are clamped to `min_command`..`max_throttle`. The motor output is written on every task cycle (1 kHz target; BLHeli_32 needs > 200 DShot frames/s, bench 2026-11-22) in every state, so the ESCs always see a continuous pulse train.
 - **Arming** is controlled by `ADUM_AUX_CHANNELS` only; the master is primary (D8). Every ARMED frame arms, whatever the readiness. Readiness (own-health checks: `LINK`, `BOOT_GRACE`, `MOTOR_CONFIG`, `CONFIG_ACTIVE`) is only reported: HEARTBEAT `STANDBY` = ready, `UNINIT` = not ready, plus a 1 Hz `STATUSTEXT` `NOT READY: <reason>` while disarmed and not ready.
 - **Failsafe:** armed and no valid `ADUM_AUX_CHANNELS` for `sd_link_timeout_ms` (default 500 ms; `HEARTBEAT` does not count): motors to `min_command`, servos hold the last position. FAILSAFE never times out into DISARMED; it ends with the next frame from the master (armed frame re-arms at once). Silence of 1 s resets the parser; of 2 s re-initialises the UART (not on SITL).
 - **Config lock:** while ARMED or FAILSAFE the CLI (enter, `save`, `reboot`, `defaults`, `motor`) and MSP (`MSP_EEPROM_WRITE`, `MSP_SET_MOTOR`, `MSP_RESET_CONF`, `MSP_REBOOT`) are refused. `ARMING_FLAG(ARMED)` stays set in FAILSAFE.
@@ -84,7 +83,7 @@ UART2, motors standard PWM 400 Hz 1000-2000 us). A saved config is never loaded 
 - **CLI settings** (`servoDriverConfig`, `PG_SERVO_DRIVER_CONFIG` 557): `sd_link_timeout_ms` (500, 100-5000), `sd_boot_grace_ms` (2000, 0-10000).
 - **Board to master:** a 1 Hz `HEARTBEAT` (DISARMED: base_mode 0 / STANDBY; ARMED: `SAFETY_ARMED` / ACTIVE; FAILSAFE: 0 / CRITICAL), a 1 Hz `SYS_STATUS` (`errors_comm`, `drop_rate_comm` from sequence gaps, `errors_count1` TX drops, `errors_count2` clamps and no-value values; uint16 wrap), `STATUSTEXT` (`NOT READY: <reason>` WARNING, 1 Hz while not ready; `FAILSAFE: link lost` / `link restored` CRITICAL; `LINK: low frame rate` WARNING when < 20 AUX frames in 1 s, max every 10 s), and an **`ADUM_GPS_PVT`** (id 13000) for every UBX NAV-PVT solution (fix type incl. DGPS/RTK float/RTK fixed, time, position, velocity, accuracies). Heading is flagged valid with a 3D fix above 0.3 m/s. `ADUM_MAGNETOMETER` (13001) is not implemented yet (needs a magnetometer driver; I2C1 on the free pins PB8/PB9 needs the AFIO remap that the F1 I2C driver does not set yet).
 - GPS (UBlox, set the UART in Ports): the driver configures M9/M10 modules with `UBX-CFG-VALSET` (module detected through `UBX-MON-VER`; SBAS and constellation settings stay at the module defaults on those). Older modules use the original commands.
-- Motors are PWM, OneShot or Multishot. **DShot is not available** on this F1 target. The protocol is compiled in (standard PWM 50 Hz, `PWM_TYPE_STANDARD` in `target/SATELLITEBOARD/config.c`): the board always boots on these defaults and never loads a saved config, so a CLI change lasts until reboot only.
+- Motors use **DShot300** (output only, no telemetry, no bidirectional), set in `config.c`. Fallback: standard PWM 400 Hz (`PWM_TYPE_STANDARD`, see the comment in `config.c`). SITL uses the PWM/identity path.
 - Everything else is removed to fit: OSD, blackbox, LED strip, VTX, SPI, beeper, most serial RX protocols and telemetry, resource remapping, plus the unused Open Location Code library (`make/source.mk`). Flash use is 87344 B (text+data) of 126 KB, static RAM 15460 B of 20 KB (2 KB of it is the reserved stack).
 - The CLI and MSP over USB/UART still work. The gyro, attitude and PID tabs of the configurator show nothing useful.
 
@@ -216,7 +215,7 @@ Every run writes `runs/<time>_<test>/summary.json`. Details: [`test/README.md`](
 
 Open design decisions and safety risks are listed in [`TODO.md`](TODO.md) and, across both repos, in `../inav/docs/adum/TODO.md`. They need an owner decision before anyone changes that behaviour.
 
-- DShot, servo/motor output feedback, the magnetometer (`ADUM_MAGNETOMETER`), sysid/compid.
+- Servo/motor output feedback, the magnetometer (`ADUM_MAGNETOMETER`), sysid/compid.
 - Aircraft tests: real ESCs and servos, power and noise, endurance (`../inav/docs/adum/flight_readiness.md`, parts A and B).
 - Bench items still open: watchdog (IWDG) under a firmware hang, reset while armed, pin-level output checks.
 

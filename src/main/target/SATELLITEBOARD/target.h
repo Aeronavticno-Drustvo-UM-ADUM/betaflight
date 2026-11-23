@@ -41,6 +41,8 @@
 #define USE_UART1
 #define USE_UART2
 #define USE_UART3
+// RX DMA ring per UART (default 128 B): 512 B holds 11 ms of the master link at 460800 baud
+#define UART_RX_BUFFER_SIZE     512
 
 #define SERIAL_PORT_COUNT       4
 
@@ -71,6 +73,13 @@
 #undef USE_TELEMETRY_FRSKY_HUB
 #undef USE_TELEMETRY_SMARTPORT
 #undef USE_RESOURCE_MGMT
+
+// DShot output only (timer-DMA driver); no burst, telemetry, bit-bang or ESC sensor
+#define USE_DSHOT
+#undef USE_DSHOT_DMAR
+#undef USE_DSHOT_TELEMETRY
+#undef USE_DSHOT_BITBANG
+#undef USE_ESC_SENSOR
 
 // GPS: only enabled by common_pre.h for >256 KB parts
 #define USE_GPS

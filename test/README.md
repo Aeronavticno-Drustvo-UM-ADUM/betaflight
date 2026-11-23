@@ -45,11 +45,11 @@ Timing checks use `time.monotonic()` of the sender and the timestamps of the `[s
 
 | Phase | File | Scenarios |
 |---|---|---|
-| 1 | test_01_normal_operation | start-up, disarmed frames, arm/disarm, sweep, frame rates 10/50/100 Hz, latency, clamps and no-value markers, arming_status 2/255, arm toggling |
+| 1 | test_01_normal_operation | start-up, disarmed frames, arm/disarm, sweep, frame rates 10/50/100/500 Hz, latency, clamps and no-value markers, arming_status 2/255, arm toggling |
 | 1 | test_02_link_loss | gaps below/above the timeout, recovery (disarmed first / armed directly), flapping, HEARTBEAT only, TCP reconnect, 10 s outage |
 | 1 | test_03_frame_integrity | bad CRC, garbage, byte by byte, truncated frame, burst, unknown id / MAVLink 1 / wrong CRC_EXTRA, trimmed payload, other sysid/compid, signed frame |
 | 1 | test_04_gps_pvt | NAV-PVT conversion (fix types, flags, time, DOP) |
-| 1 | test_05_arming_safety | transitions + timing, FAILSAFE 60 s, every ARMED frame arms (D8), P1-P4 readiness (HEARTBEAT UNINIT + NOT READY text, armed anyway), unknown msgid ignored, config lock (CLI/MSP), motor writes every cycle per state (~150 Hz on SITL, 200 Hz bench), HEARTBEAT status, SYS_STATUS, parser reset, sd_* settings |
+| 1 | test_05_arming_safety | transitions + timing, FAILSAFE 60 s, every ARMED frame arms (D8), P1-P4 readiness (HEARTBEAT UNINIT + NOT READY text, armed anyway), unknown msgid ignored, config lock (CLI/MSP), motor writes every cycle per state (~350 Hz on SITL, 1 kHz board target), HEARTBEAT status, SYS_STATUS, parser reset, sd_* settings |
 | 1 | test_07_motor_test | MT1-MT3 follow/clamp/stay DISARMED, MT4 stop + 200 ms timeout, MT5 in ARMED/FAILSAFE, MT8 5 s lockout, MT9 boot grace, MT10 BLOCKED text, arming during a test |
 | 2 | (planned) | GPS faults, TX buffer saturation, configurator access while armed |
 | 3 | (planned) | soak, timer wrap, reboot, EEPROM |
