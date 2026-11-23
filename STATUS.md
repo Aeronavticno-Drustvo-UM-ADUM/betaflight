@@ -2,6 +2,8 @@
 
 **Next (2026-11-21): DShot300 motor output, output only (owner decision).** `docs/dshot_output.md` steps 1-4 done (`29b7036de` driver, `60bf0d976` servo driver conversion, step 4 = DShot300 selected in `config.c`, PWM 400 Hz fallback in comment). Not flashed or bench-tested yet. Bench 2026-11-22: (a) DShot timer ARR bug fixed `34ebf7601`; (b) 200 Hz too slow for the BLHeli_32 ESC -> servo task 1 kHz `ffebdfb08` (CPU 5.2 % at 1 kHz, link 100 frames/s); DShot300 spins M1. Next: B2-B7 with the owner.
 
+**Master link 500 Hz (2026-11-22/23):** UART1 460800, RX buffer 512 B (`8bdc513cf`); INAV sends a fixed 500 Hz. Bench: INAV combined suite 251/251 (real master), `test/hw` hw_01-04 109/109 with the fake master at 500 Hz (499.8 frames/s counted, 0 parse errors, maxCycleGapUs 1106). Open items before flight: INAV `docs/adum/TODO.md` "Today 2026-11-22" L6.
+
 Level: L1/L2 SITL complete for phase 1 (tests 01-06, 298 checks, 0 failed 2026-11-13); firmware implementation of `docs/arming_safety.md` done 2026-11-11. Bench (L3): rerunnable standalone suite `test/hw/` hw_01-04 **PASS** (2026-11-13), combined suites with INAV EVIS_FC pass (INAV repo). Report: `docs/hw_bench_report.md`. Flight readiness plan: INAV `docs/adum/flight_readiness.md` (A1-A4 done; next: OneShot bench research, INAV TODO ONESHOT-BENCH). Not yet tested in the aircraft.
 
 ## Session 2026-11-14 (handover; master list: INAV `docs/adum/TODO.md`, INAV `STATUS.md` "Next session")
